@@ -1,0 +1,45 @@
+"""Workspace endpoints. Each is reachable only by its own access categories."""
+
+from fastapi import APIRouter, Depends
+
+from app.api.deps import (
+    CompanyAdmin,
+    CompanyMember,
+    DbSession,
+    SuperAdmin,
+    require_company_member,
+)
+from app.schemas.auth import CurrentUser, WorkspaceResponse
+from app.schemas.super_admin import SuperAdminDashboardOut
+from app.services.super_admin_dashboard import get_dashboard
+
+super_admin_router = APIRouter(prefix="/super-admin", tags=["super-admin"])
+
+# Router-level guard: EVERY route registered under /company (now and in future
+# modules) requires a Company account AND a valid subscription, even if a route
+# forgets its own guard. Route-level guards may narrow the role further.
+company_router = APIRouter(
+    prefix="/company", tags=["company"], dependencies=[Depends(require_company_member)]
+)
+
+
+@super_admin_router.get("/workspace", response_model=WorkspaceResponse)
+def super_admin_workspace(user: SuperAdmin) -> WorkspaceResponse:
+    return WorkspaceResponse(workspace="super_admin", user=CurrentUser.from_user(user))
+
+
+@super_admin_router.get("/dashboard", response_model=SuperAdminDashboardOut)
+def super_admin_dashboard(_: SuperAdmin, db: DbSession) -> SuperAdminDashboardOut:
+    """Subscription status and limited Company Admin contact. No business data."""
+    return SuperAdminDashboardOut.from_data(get_dashboard(db))
+
+
+@company_router.get("/workspace", response_model=WorkspaceResponse)
+def company_workspace(user: CompanyMember) -> WorkspaceResponse:
+    return WorkspaceResponse(workspace="company", user=CurrentUser.from_user(user))
+
+
+@company_router.get("/admin/workspace", response_model=WorkspaceResponse)
+def company_admin_workspace(user: CompanyAdmin) -> WorkspaceResponse:
+    """Company-admin-only area (future: users, roles, shops)."""
+    return WorkspaceResponse(workspace="company", user=CurrentUser.from_user(user))

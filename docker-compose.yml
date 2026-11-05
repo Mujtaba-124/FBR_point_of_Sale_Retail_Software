@@ -1,0 +1,133 @@
+name: cheena_pos
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cheena_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - cheena_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [cheena_net]
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: cheena_redis
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - cheena_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [cheena_net]
+
+  backend:
+    build: ./backend
+    container_name: cheena_backend
+    environment: &backend_env
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # Secure by default; local HTTP development sets COOKIE_SECURE=false in .env.
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      # The browser reaches the API only through the Next.js proxy.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      # AES-256-GCM key for the stored SMTP password. Comes only from .env /
+      # the secret store; no default. Without it, saving a password fails securely.
+      EMAIL_SETTINGS_ENCRYPTION_KEY: ${EMAIL_SETTINGS_ENCRYPTION_KEY:-}
+      EMAIL_SETTINGS_PREVIOUS_KEYS: ${EMAIL_SETTINGS_PREVIOUS_KEYS:-}
+      SMTP_ALLOW_PRIVATE_HOSTS: ${SMTP_ALLOW_PRIVATE_HOSTS:-false}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [cheena_net]
+
+  celery_worker:
+    build: ./backend
+    container_name: cheena_celery_worker
+    command: celery -A app.celery_app.celery_app worker --loglevel=info
+    environment: *backend_env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_app.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    networks: [cheena_net]
+
+  # Sends periodic wake-up signals only (reminder evaluation every 30 min,
+  # outbox dispatch every minute). Run exactly one Beat. All reminder state is
+  # in PostgreSQL, so a duplicated or lost signal is harmless.
+  celery_beat:
+    build: ./backend
+    container_name: cheena_celery_beat
+    command: celery -A app.celery_app.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    environment: *backend_env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [cheena_net]
+
+  frontend:
+    build: ./frontend
+    container_name: cheena_frontend
+    environment:
+      # Server-side address of the API; the browser calls /api/v1 on the frontend origin.
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - cheena_frontend_node_modules:/app/node_modules
+      - cheena_frontend_next:/app/.next
+    networks: [cheena_net]
+
+volumes:
+  cheena_postgres_data:
+    name: cheena_postgres_data
+  cheena_redis_data:
+    name: cheena_redis_data
+  cheena_frontend_node_modules:
+    name: cheena_frontend_node_modules
+  cheena_frontend_next:
+    name: cheena_frontend_next
+
+networks:
+  cheena_net:
+    name: cheena_net
