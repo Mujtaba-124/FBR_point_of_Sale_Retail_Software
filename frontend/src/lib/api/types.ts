@@ -27,7 +27,14 @@ export const SUBSCRIPTION_ERROR_CODES: readonly SubscriptionErrorCode[] = [
 
 export type LoginResponse = { user: CurrentUser };
 
-export type WorkspaceResponse = { workspace: Workspace; user: CurrentUser };
+/** `permissions` are display hints only: the backend re-checks every request. */
+export type WorkspaceResponse = {
+  workspace: Workspace;
+  user: CurrentUser;
+  permissions?: string[];
+  /** Company Workspace: this account uses the All Shops / shop selector. */
+  shop_context_enabled?: boolean;
+};
 
 export type ApiErrorBody = { error: { code: string; message: string } };
 
@@ -247,3 +254,181 @@ export const WORKSPACE_PATHS: Record<Workspace, string> = {
 /** Session cookie names (secure production name and local HTTP name). */
 export const SESSION_COOKIE_NAMES = ["__Host-cheena_session", "cheena_session"] as const;
 export const CSRF_COOKIE_NAMES = ["__Host-cheena_csrf", "cheena_csrf"] as const;
+
+// --- Company dashboard ----------------------------------------------------------
+
+/** `available: false` means the module is not built yet: `value` is null, not zero. */
+export type DashboardMetric = {
+  available: boolean;
+  value: number | null;
+  unavailable_reason: string | null;
+};
+
+export type CompanyDashboard = {
+  company: { name: string | null };
+  metrics: {
+    total_shops: DashboardMetric;
+    active_shops: DashboardMetric;
+    active_users: DashboardMetric;
+    pending_approvals: DashboardMetric;
+    pending_fbr_sync: DashboardMetric;
+  };
+  sales_overview: { available: false; unavailable_reason: string };
+  recent_uploads: { available: false; unavailable_reason: string };
+  shop_allowance: ShopAllowanceSummary;
+  /** The shop context the response was built for. */
+  context: ShopContextInfo;
+  /** "company" = always company-wide; "context" = follows the selected shop. */
+  metric_scopes: Record<string, "company" | "context">;
+};
+
+// --- Company User Management + Roles & Permissions --------------------------------
+
+export type UserCapacity = { active: number; limit: number; available: number; inactive: number };
+
+export type RoleRef = { id: string; name: string; is_system: boolean; is_active: boolean };
+
+export type CompanyUser = {
+  id: string;
+  full_name: string;
+  email: string;
+  tier: "company_admin" | "company_user";
+  is_protected: boolean;
+  status: "active" | "inactive";
+  role: RoleRef | null;
+  setup_pending: boolean;
+  setup_link_expires_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  shop_access: ShopAccessSummary;
+};
+
+// --- User shop access (Phase 3.3) ----------------------------------------------------
+
+/** "company" = the protected Company Admin: every shop, not editable. */
+export type ShopScopeMode = "company" | "all" | "selected" | "none";
+export type ShopAccessMode = Exclude<ShopScopeMode, "company">;
+
+export type ShopAccessSummary = { mode: ShopScopeMode; shop_count: number | null };
+
+export type AssignableShop = { id: string; name: string; code: string; status: "active" | "inactive" };
+
+export type ShopAccessDetail = ShopAccessSummary & {
+  shops: AssignableShop[];
+  editable: boolean;
+  version: number | null;
+  updated_at: string | null;
+};
+
+export type ShopAccessUpdate = { access: ShopAccessDetail; changed: boolean };
+
+export type AssignableShops = { items: AssignableShop[]; total: number };
+
+export type CompanyUserPage = {
+  items: CompanyUser[];
+  total: number;
+  limit: number;
+  offset: number;
+  capacity: UserCapacity;
+};
+
+/** The raw token appears once; the link is /set-password#token=<token>. */
+export type SetupLinkIssued = {
+  user: CompanyUser;
+  setup_token: string;
+  setup_expires_at: string;
+  capacity: UserCapacity;
+};
+
+export type UserActionResult = { user: CompanyUser; capacity: UserCapacity };
+
+export type CompanyRoleItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  system_key: "company_admin" | "company_user" | null;
+  is_system: boolean;
+  is_active: boolean;
+  permissions: string[];
+  active_users: number;
+  total_users: number;
+  version: number;
+  updated_at: string;
+};
+
+export type CapabilityColumn = "view" | "create" | "edit" | "delete" | "special";
+
+export type PermissionModule = {
+  key: string;
+  label: string;
+  available: boolean;
+  admin_only: boolean;
+  capabilities: { key: string; label: string; column: CapabilityColumn }[];
+};
+
+export type PermissionCatalog = { modules: PermissionModule[]; baseline: string[] };
+
+export type RoleListPayload = { items: CompanyRoleItem[] };
+
+// --- Shop Management ----------------------------------------------------------------
+
+/** The FBR token itself is never sent to the browser; only its status. */
+export type Shop = {
+  id: string;
+  name: string;
+  branch_name: string;
+  code: string;
+  pos_id: string;
+  status: "active" | "inactive";
+  fbr_token_status: "configured" | "not_configured" | "unreadable";
+  fbr_token_updated_at: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ShopSummary = { total: number; active: number; inactive: number };
+
+export type ShopPage = {
+  items: Shop[];
+  total: number;
+  limit: number;
+  offset: number;
+  summary: ShopSummary;
+  allowance: ShopAllowanceSummary;
+};
+
+// --- Shop Allowance (set by the Super Admin; aggregate counts only) ------------------
+
+/** Unlimited has `max_shops: null` and `available_slots: null`, never a sentinel number.
+ *  `registered_shops` counts active and inactive shops. */
+export type ShopAllowanceSummary = {
+  mode: "limited" | "unlimited";
+  max_shops: number | null;
+  registered_shops: number;
+  available_slots: number | null;
+  at_capacity: boolean;
+  over_limit: boolean;
+};
+
+export type ShopAllowance = ShopAllowanceSummary & { version: number; last_updated_at: string | null };
+
+export type ShopAllowanceUpdate = { allowance: ShopAllowance; changed: boolean };
+
+// --- Shop context (All Shops / one shop) ------------------------------------------------
+
+/** Selector option: immutable ID, display name and code only (no POS ID, no token). */
+export type ShopOption = { id: string; name: string; code: string };
+
+export type ShopSelectionStatus = "all" | "active" | "inactive" | "not_found" | "invalid";
+
+export type ShopOptions = {
+  items: ShopOption[];
+  total: number;
+  truncated: boolean;
+  selection: { status: ShopSelectionStatus; shop: ShopOption | null };
+  /** The account's shop scope and what its "All" option means. */
+  access: { mode: ShopScopeMode; all_label: string };
+};
+
+export type ShopContextInfo = { scope: "all" | "shop"; shop: ShopOption | null };

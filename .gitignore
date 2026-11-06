@@ -23,3 +23,6 @@ next-env.d.ts
 Thumbs.db
 .idea/
 .vscode/
+
+# QA end-to-end run artifacts (reports, email sink)
+backend/.qa-e2e/

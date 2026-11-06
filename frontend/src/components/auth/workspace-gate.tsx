@@ -23,10 +23,13 @@ export async function WorkspaceGate({
   workspace,
   label,
   children,
+  shell,
 }: {
   workspace: "super_admin" | "company";
   label: string;
   children: (data: WorkspaceResponse) => ReactNode;
+  /** Frame for an authorized user (defaults to the minimal WorkspaceShell). */
+  shell?: (data: WorkspaceResponse, content: ReactNode) => ReactNode;
 }) {
   const access = await checkWorkspaceAccess(workspace);
 
@@ -47,6 +50,7 @@ export async function WorkspaceGate({
     );
   }
 
+  if (shell) return shell(access.data, children(access.data));
   return (
     <WorkspaceShell label={label} userName={access.data.user.full_name}>
       {children(access.data)}

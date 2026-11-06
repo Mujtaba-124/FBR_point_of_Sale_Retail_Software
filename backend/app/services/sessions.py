@@ -117,8 +117,18 @@ def revoke_token_if_present(db: Session, request: Request) -> None:
 # --- Cookies ---------------------------------------------------------------
 
 
+def _expire_inactive_mode_cookies(response: Response) -> None:
+    """Remove leftover cookies of the other COOKIE_SECURE mode (see config).
+
+    A "__Host-" cookie can only be removed by a Secure Set-Cookie with Path=/.
+    """
+    for name in get_settings().inactive_cookie_names:
+        response.delete_cookie(name, path="/", secure=name.startswith("__Host-"), samesite="lax")
+
+
 def set_auth_cookies(response: Response, issued: IssuedSession) -> None:
     settings = get_settings()
+    _expire_inactive_mode_cookies(response)
     # No Max-Age: a browser-session cookie. The server enforces absolute and
     # idle expiry regardless of what the browser keeps.
     response.set_cookie(
@@ -141,6 +151,7 @@ def set_auth_cookies(response: Response, issued: IssuedSession) -> None:
 
 def clear_auth_cookies(response: Response) -> None:
     settings = get_settings()
+    _expire_inactive_mode_cookies(response)
     response.delete_cookie(
         settings.session_cookie_name,
         path="/",

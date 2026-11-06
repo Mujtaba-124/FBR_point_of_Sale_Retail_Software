@@ -8,7 +8,8 @@ import { SubscriptionStatusCard } from "@/components/super-admin/subscription-ca
 import { SubscriptionProgress } from "@/components/super-admin/subscription-progress";
 import { RenewalHistory } from "@/components/super-admin/subscription/renewal-history";
 import { RenewalPanel } from "@/components/super-admin/subscription/renewal-panel";
-import type { RenewalPage, SubscriptionManagement } from "@/lib/api/types";
+import { ShopAllowanceCard, ShopAllowanceUnavailable } from "@/components/super-admin/subscription/shop-allowance-card";
+import type { RenewalPage, ShopAllowance, SubscriptionManagement } from "@/lib/api/types";
 import { formatDate, pluralDays } from "@/lib/format";
 
 function OverviewDetails({ data }: { data: SubscriptionManagement }) {
@@ -41,9 +42,12 @@ function OverviewDetails({ data }: { data: SubscriptionManagement }) {
 export function SubscriptionManagementView({
   data,
   history,
+  allowance,
 }: {
   data: SubscriptionManagement;
   history: RenewalPage;
+  /** Aggregate shop allowance; null when it could not be loaded. */
+  allowance: ShopAllowance | null;
 }) {
   const s = data.subscription;
   // Remount history (back to page 1) whenever the backend data changes.
@@ -69,6 +73,8 @@ export function SubscriptionManagementView({
         <SubscriptionProgress subscription={s} className="xl:col-span-2" />
         <OverviewDetails data={data} />
       </div>
+
+      {allowance ? <ShopAllowanceCard initial={allowance} /> : <ShopAllowanceUnavailable />}
 
       <RenewalHistory key={historyKey} initial={history} />
     </div>

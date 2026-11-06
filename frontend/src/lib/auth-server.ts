@@ -43,6 +43,34 @@ export async function fetchBackend<T>(path: `/api/v1/${string}`): Promise<Backen
   return { status: "unavailable" };
 }
 
+/** Like fetchBackend, but keeps the error code of 404/409/422 answers. */
+export type DetailedBackendResult<T> =
+  | BackendResult<T>
+  | { status: "rejected"; httpStatus: number; code: string | null };
+
+export async function fetchBackendDetailed<T>(
+  path: `/api/v1/${string}`,
+): Promise<DetailedBackendResult<T>> {
+  const cookie = (await headers()).get("cookie") ?? "";
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl}${path}`, {
+      headers: { cookie },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    return { status: "unavailable" };
+  }
+  if ([404, 409, 422].includes(response.status)) {
+    return { status: "rejected", httpStatus: response.status, code: await errorCode(response) };
+  }
+  if (response.status === 200) return { status: "ok", data: (await response.json()) as T };
+  if (response.status === 401) return { status: "unauthenticated" };
+  if (response.status === 403) return { status: "forbidden", code: await errorCode(response) };
+  return { status: "unavailable" };
+}
+
 const WORKSPACE_ENDPOINTS = {
   super_admin: "/api/v1/super-admin/workspace",
   company: "/api/v1/company/workspace",

@@ -2,10 +2,10 @@
 
 Single-company, multi-shop, multi-user FBR POS web application. See [CLAUDE.md](CLAUDE.md) for project rules.
 
-**Status: Subscription Management Milestone 2 — renewal, renewal history and server-enforced subscription expiry for the Company Workspace.** No business modules yet.
+**Status: Subscription Management Milestone 2 â€” renewal, renewal history and server-enforced subscription expiry for the Company Workspace.** No business modules yet.
 
 ## Stack
-Next.js + TypeScript + Tailwind + shadcn/ui · FastAPI · PostgreSQL (`cheena_database`) · SQLAlchemy + Alembic · Celery + Redis · Docker.
+Next.js + TypeScript + Tailwind + shadcn/ui Â· FastAPI Â· PostgreSQL (`cheena_database`) Â· SQLAlchemy + Alembic Â· Celery + Redis Â· Docker.
 
 ## Layout
 ```
@@ -28,7 +28,7 @@ docker-compose.yml
 |---|---|
 | Frontend | http://localhost:3000 |
 | Backend API / docs | http://localhost:8000 / http://localhost:8000/docs |
-| Liveness / readiness | http://localhost:8000/health/live · /health/ready |
+| Liveness / readiness | http://localhost:8000/health/live Â· /health/ready |
 | PostgreSQL (host) | localhost:5433 (container 5432) |
 | Redis (host) | localhost:6380 (container 6379) |
 
@@ -103,12 +103,12 @@ docker compose exec backend python -m app.cli configure-subscription --company-n
 
 - Dates are calendar days in Pakistan time (`Asia/Karachi`); the expiry date is the last valid day.
 - The command only creates the record. If one already exists it refuses; later changes are
-  made through **Subscription Management → Renew Subscription** in the Super Admin workspace.
+  made through **Subscription Management â†’ Renew Subscription** in the Super Admin workspace.
   Every creation is recorded in `audit_events`.
 
 ### Renewing the subscription
 
-Super Admin → Subscription Management → **Renew Subscription**. The new expiry date must be
+Super Admin â†’ Subscription Management â†’ **Renew Subscription**. The new expiry date must be
 later than the current expiry date and later than today (so an expired subscription becomes
 active again); the start date never changes. Each renewal writes one row to the append-only
 `subscription_renewals` table (UPDATE/DELETE are rejected by a database trigger) and a
@@ -159,7 +159,7 @@ blocked, so renewal always remains possible.
 
 ## Email Settings (Super Admin)
 
-Super Admin → **Email Settings** stores one SMTP configuration, turns email sending on or off,
+Super Admin â†’ **Email Settings** stores one SMTP configuration, turns email sending on or off,
 and runs two tests: **Test Connection** (connects, secures, signs in; never sends) and
 **Send Test Email** (one fixed message; requires sending to be enabled; 5 per 15 minutes; a
 retried request never sends twice). Only the Super Admin can use it (Company accounts: 403).
@@ -191,7 +191,7 @@ Then recreate the backend: `docker compose up -d backend celery_worker`.
 ### Gmail setup
 
 1. Use a Google account that will send the system's email (a dedicated one is best).
-2. Turn on **2-Step Verification**: Google Account → Security → 2-Step Verification.
+2. Turn on **2-Step Verification**: Google Account â†’ Security â†’ 2-Step Verification.
 3. Create an **App Password**: open `https://myaccount.google.com/apppasswords`, enter a
    name (for example "Cheena POS") and click **Create**. Copy the 16-character password.
    (If the page is unavailable, 2-Step Verification is off, or a Workspace admin has disabled
@@ -216,7 +216,7 @@ production.
 
 ## Subscription expiry reminders
 
-Super Admin → Email Settings → **Subscription Expiry Reminders**. Off by default.
+Super Admin â†’ Email Settings â†’ **Subscription Expiry Reminders**. Off by default.
 
 - **Schedule (fixed, Asia/Karachi days; the expiry date is inclusive):** daily from 15 days
   before expiry to 1 day before, once on the expiry day, then daily for 5 days after expiry.
@@ -231,12 +231,12 @@ Super Admin → Email Settings → **Subscription Expiry Reminders**. Off by def
 ### How it runs
 
 ```
-celery_beat ──(every 30 min)──> reminders.evaluate ──> email_outbox rows (PostgreSQL)
-celery_beat ──(every minute)──> email_outbox.dispatch ──> existing secure SMTP client
+celery_beat â”€â”€(every 30 min)â”€â”€> reminders.evaluate â”€â”€> email_outbox rows (PostgreSQL)
+celery_beat â”€â”€(every minute)â”€â”€> email_outbox.dispatch â”€â”€> existing secure SMTP client
 ```
 
 - `celery_beat` must run exactly once (`docker compose up -d celery_beat`); `celery_worker` can
-  be scaled. Rows are claimed with `SELECT … FOR UPDATE SKIP LOCKED` plus a 5-minute lease.
+  be scaled. Rows are claimed with `SELECT â€¦ FOR UPDATE SKIP LOCKED` plus a 5-minute lease.
 - A database unique constraint (subscription, expiry date, stage, date, recipient) makes the
   scheduler idempotent; Redis only carries wake-up signals.
 - **Retries:** transient errors (network, timeouts, SMTP 4xx) retry after 1, 5, 15 and 45 min,
@@ -249,6 +249,115 @@ celery_beat ──(every minute)──> email_outbox.dispatch ──> existing s
   delivery.
 - **Development/QA:** `EMAIL_TRANSPORT=sink` writes messages to `EMAIL_SINK_DIR` as `.eml`
   files instead of sending them (refused in production).
+
+### End-to-end reminder verification (disposable QA stack)
+
+Simulates the whole reminder period with the real Celery Worker and Beat, without real email
+and without touching `cheena_database` or any system clock:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\qa\Invoke-ReminderE2E.ps1
+```
+
+It creates `cheena_database_e2e`, uses Redis DB 12 and the file sink, checks 25 simulated days
+(21 reminder dates, 42 recipient events) plus renewal, retries, permanent failures, worker
+crashes and timezone boundaries, writes a per-day PASS/FAIL report to
+`backend/.qa-e2e/reports/`, removes the disposable resources, and exits non-zero on any failure.
+Add `-KeepResources` to keep the e2e database and containers for inspection. The backend refuses
+`E2E_TEST_MODE` in production and for any database not named `*_e2e`.
+
+## Shop Management (Company Workspace)
+
+`/company/shops` - fields: Shop Name, Branch Name, Shop Code, POS ID, FBR Token.
+
+- **Uniqueness:** Shop Code and POS ID are unique across all shops, case-insensitively
+  (PostgreSQL unique indexes). POS IDs are strings, so leading zeros are kept.
+- **Status:** shops are never deleted; they are deactivated and reactivated. Inactive shops keep
+  their identity and FBR settings.
+- **Permissions:** View = `shops.view`, Create = `shops.create`, Edit = `shops.edit`,
+  Deactivate/Reactivate = `shops.delete` (no permanent deletion exists), FBR token =
+  `shops.manage_integration`. The Company Admin has all of them; the Super Admin none.
+- **FBR token:** optional at creation ("Token not configured"), set or replaced only through the
+  token action, never returned by the API, never logged or audited. Blank never clears a token.
+
+### FBR token encryption key
+
+Tokens are encrypted with AES-256-GCM using `FBR_TOKEN_ENCRYPTION_KEY`, a key separate from the
+SMTP key (the backend refuses to use the same key for both). Generate it the same way:
+
+```
+python -c "import secrets,base64;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+Back it up separately from database backups. To rotate: move the old key into
+`FBR_TOKEN_PREVIOUS_KEYS` (comma-separated, decrypt only), set the new key, recreate the backend,
+re-enter each shop token, then remove the old key. A shop whose token was encrypted with a key that
+is no longer configured shows "Token needs re-entry". The local `.env` already has a key.
+
+### Shop Allowance (Super Admin)
+
+The Super Admin sets how many shops the company may register on **Subscription Management ->
+Shop Allowance**: either **Limited** (a whole number, 1-100,000) or **Unlimited** (stored as an
+explicit mode with no number, never a sentinel). The Company Workspace only reads it.
+
+- Active **and** inactive shops use a slot. Deactivating never frees one; reactivating never needs one.
+- Lowering the limit below current usage changes no shop; new registrations are refused
+  (`409 shop_limit_reached`) until the allowance is higher than the registered count.
+- Enforcement: the `shop_allowance` row is locked (`SELECT ... FOR UPDATE`) inside every shop
+  creation and every allowance change, and the `shops_enforce_allowance` trigger applies the same
+  rule to any other insert path. The allowance row cannot be deleted.
+- APIs: `GET/PUT /api/v1/super-admin/shop-allowance` (Super Admin, PUT needs CSRF and
+  `expected_version`; works after subscription expiry) and `GET /api/v1/company/shops/allowance`
+  (`shops.view`). Responses are aggregate only: no shop IDs, names, codes, POS IDs or tokens.
+- Each change is audited as `shop_allowance.changed` (previous and new mode/limit, usage count).
+- Migration `0009_shop_allowance` starts as Unlimited, matching the behaviour before it existed.
+  The 15-active-user limit is separate and unchanged.
+
+### Shop context (All Shops / one shop)
+
+The sidebar's **Shop context** control (desktop sidebar and mobile drawer) switches between
+**All Shops** (consolidated) and one active shop. It is a filter, never a permission.
+
+- **Mechanism:** the selection is the URL parameter `?shop=<immutable shop id>` on shop-aware pages
+  (today only the Dashboard; future Uploads, Approvals, FBR Sync and Reports are added in
+  `frontend/src/components/company/shop-context/paths.ts`). Reload, Back/Forward and links reproduce
+  it; nothing is stored in the browser. A Company-layout provider remembers the last selection in
+  memory, so links back from company-wide pages keep it. Sign-in/out are full page loads and the
+  provider is keyed by user ID, so no selection carries over to another account.
+  Trade-off: a selection is not remembered across separate tabs or after closing the tab.
+- **Company-wide pages:** User Management, Roles & Permissions and Shop Management are never
+  filtered; the control is shown read-only there.
+- **API:** `GET /api/v1/company/shop-options?selected=<id>` returns active shops (ID, name, code only)
+  and the backend's verdict on the selection (`active`, `inactive`, `not_found`, `invalid`). An
+  inactive or unknown selection falls back to All Shops with a notice, never to another shop.
+- **Backend contract** (`app/services/shop_context.py`): `resolve()` validates every shop ID server
+  side (422 invalid, 404 unknown, 409 inactive), offers `Purpose.OPERATE` (active only, FOR SHARE lock),
+  `require_single_shop` (e.g. Excel Upload) and `Purpose.HISTORY` (inactive allowed, read-only).
+  `shop_access_condition()` is where per-user shop assignments would go; none exist today.
+- **Who sees it:** accounts with an implemented shop-aware module. Today that is the Company Admin
+  (Dashboard); Company Users get it once a shop-aware module they hold is built.
+
+### User shop access (Company Admin)
+
+Each Company User has one of: **All Shops** (every shop, including shops created later),
+**Selected Shops Only** (the shops ticked in Add/Edit User), or **No Shop Access** (the default
+for new users and for every user that existed before migration `0010_user_shop_access`). The
+protected Company Admin always has all shops and cannot be reassigned.
+
+- Access to shop data = Company account + valid subscription + module permission + shop scope +
+  shop status/purpose. A shop assignment never grants a module permission, and User Management,
+  Roles & Permissions and Shop Management stay company-wide.
+- Tables: `user_shop_access` (one row per Company User, versioned) and `user_shop_assignments`
+  (only while the mode is `selected`, enforced by a composite foreign key; deferred triggers require
+  at least one shop and allow rows for Company Users only). Assignments survive deactivation of a
+  shop, so history stays readable; inactive shops never take new operations.
+- APIs (Company Admin only, CSRF): `GET/PUT /api/v1/company/users/{id}/shop-access`
+  (`expected_version`; stale forms get 409; no-op saves write nothing) and
+  `GET /api/v1/company/shop-assignment-options`. Every change is audited as
+  `company_user.shop_access_changed` with previous/new mode and shop IDs.
+- Future modules use `app/services/shop_context.py`: `resolve_operational_shop(...)` (one active,
+  assigned shop), `resolve_historical_shop(...)`, and `scope_filter(user, context, Table.shop_id)`
+  for consolidated queries, which filters inside SQL. Company Users see "All Assigned Shops".
 
 ## Tests and checks
 
@@ -269,7 +378,7 @@ docker compose exec frontend npm run build
 docker compose exec backend alembic revision --autogenerate -m "message"
 docker compose exec backend alembic upgrade head
 ```
-Current head: `0006_reminders` (`users`, `authentication_sessions`, `audit_events`, `app_subscription`, `subscription_renewals`, `email_settings`, `subscription_reminder_settings`, `email_outbox`, `email_delivery_attempts`).
+Current head: `0010_user_shop_access` (`users`, `authentication_sessions`, `audit_events`, `app_subscription`, `subscription_renewals`, `email_settings`, `subscription_reminder_settings`, `email_outbox`, `email_delivery_attempts`, `company_roles`, `company_role_permissions`, `password_setup_tokens`, `shops`, `shop_allowance`, `user_shop_access`, `user_shop_assignments`).
 
 The frontend dev container does not hot-reload on Windows; after editing frontend files run:
 ```bash

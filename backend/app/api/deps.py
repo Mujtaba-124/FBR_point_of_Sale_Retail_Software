@@ -22,6 +22,7 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
+
 def _csrf_failed() -> AppError:
     return AppError(403, "csrf_failed", "The request could not be verified. Refresh and try again.")
 
@@ -100,6 +101,21 @@ require_company_member = require_company_categories(
     AccessCategory.COMPANY_ADMIN, AccessCategory.COMPANY_USER
 )
 require_company_admin = require_company_categories(AccessCategory.COMPANY_ADMIN)
+
+
+def require_company_permission(permission: str) -> Callable[..., User]:
+    """Company Workspace guard for one capability, evaluated from the database on
+    every request (role changes and revocations apply immediately). Unknown
+    capabilities are always denied."""
+    from app.services.permissions import has_permission
+
+    def guard(user: Annotated[User, Depends(require_company_member)], db: DbSession) -> User:
+        if not has_permission(db, user, permission):
+            raise PermissionDenied()
+        return user
+
+    return guard
+
 
 AuthenticatedUser = Annotated[User, Depends(current_user)]
 SuperAdmin = Annotated[User, Depends(require_super_admin)]

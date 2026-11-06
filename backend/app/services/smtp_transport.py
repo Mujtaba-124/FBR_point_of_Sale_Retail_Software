@@ -340,28 +340,58 @@ def _close(client: smtplib.SMTP) -> None:
         pass
 
 
+SINK_FAULTS_KEY = "e2e:smtp:faults"
+CRASH_EXIT_CODE = 70
+
+
 class SinkTransport:
     """Development/QA only: writes messages to files instead of sending them.
 
     Selected with ``EMAIL_TRANSPORT=sink``; the settings validator refuses it in
     production. Lets the Celery worker/Beat pipeline be exercised end to end
     without any real SMTP traffic.
+
+    In ``E2E_TEST_MODE`` each send first pops one instruction from the Redis
+    list ``SINK_FAULTS_KEY``: an SMTP failure code (raised as that failure),
+    ``crash_before_accept`` (the worker process exits before the message is
+    written) or ``crash_after_accept`` (exits right after it is written, i.e.
+    accepted but not yet recorded).
     """
 
-    def __init__(self, directory: str) -> None:
+    def __init__(self, directory: str, fault_injection: bool = False) -> None:
         self.directory = directory
+        self.fault_injection = fault_injection
 
     def check_connection(self, config: SmtpConfig) -> None:
         return None
+
+    def _next_fault(self) -> str | None:
+        if not self.fault_injection:
+            return None
+        from app.core.redis import get_redis
+
+        raw = get_redis().lpop(SINK_FAULTS_KEY)
+        if raw is None:
+            return None
+        return raw.decode() if isinstance(raw, bytes) else str(raw)
 
     def send(self, config: SmtpConfig, message: EmailMessage) -> None:
         import os
         import uuid
 
+        fault = self._next_fault()
+        if fault == "crash_before_accept":
+            os._exit(CRASH_EXIT_CODE)
+        if fault and fault != "crash_after_accept":
+            raise failure(fault)
         os.makedirs(self.directory, exist_ok=True)
         path = os.path.join(self.directory, f"{uuid.uuid4().hex}.eml")
         with open(path, "wb") as fh:
             fh.write(bytes(message))
+            fh.flush()
+            os.fsync(fh.fileno())
+        if fault == "crash_after_accept":
+            os._exit(CRASH_EXIT_CODE)
 
 
 _default_transport = SmtplibTransport()
@@ -373,5 +403,5 @@ def get_smtp_transport() -> SmtpTransport:
 
     settings = get_settings()
     if settings.email_transport == "sink":
-        return SinkTransport(settings.email_sink_dir)
+        return SinkTransport(settings.email_sink_dir, settings.e2e_test_mode)
     return _default_transport

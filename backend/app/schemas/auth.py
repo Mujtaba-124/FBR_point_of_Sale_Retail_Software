@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -50,6 +51,9 @@ class CompanyAccessOut(BaseModel):
 class MeResponse(CurrentUser):
     # null for the Super Admin, whose access never depends on the subscription.
     company_access: CompanyAccessOut | None = None
+    # Effective Company capabilities (empty for the Super Admin). Display only:
+    # the backend re-evaluates them on every request.
+    permissions: list[str] = []
 
 
 class LoginResponse(BaseModel):
@@ -59,3 +63,22 @@ class LoginResponse(BaseModel):
 class WorkspaceResponse(BaseModel):
     workspace: Workspace
     user: CurrentUser
+    permissions: list[str] = []
+    # Company Workspace: whether this account uses the All Shops / shop selector.
+    shop_context_enabled: bool = False
+
+
+class SetupLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=200)
+
+
+class CompleteSetupRequest(SetupLinkRequest):
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class SetupLinkOut(BaseModel):
+    full_name: str
+    email: str  # masked
+    expires_at: datetime

@@ -52,9 +52,11 @@ def test_invalid_credentials_do_not_reveal_which_part_was_wrong(client, make_use
     unknown_email = login(client, "nobody@example.test", password)
 
     assert wrong_password.status_code == unknown_email.status_code == 401
-    assert wrong_password.json() == unknown_email.json() == {
-        "error": {"code": "invalid_credentials", "message": "Invalid email or password."}
-    }
+    assert (
+        wrong_password.json()
+        == unknown_email.json()
+        == {"error": {"code": "invalid_credentials", "message": "Invalid email or password."}}
+    )
     assert not _set_cookie_headers(wrong_password)
 
 
@@ -121,7 +123,12 @@ def test_development_cookie_mode_drops_secure_prefix(client, make_user, monkeypa
     response = login(client, email, password)
     names = [c.split("=", 1)[0] for c in _set_cookie_headers(response)]
     assert "cheena_session" in names
-    assert all("secure" not in c.lower() for c in _set_cookie_headers(response))
+    issued = [c for c in _set_cookie_headers(response) if "max-age=0" not in c.lower()]
+    assert {c.split("=", 1)[0] for c in issued} == {"cheena_session", "cheena_csrf"}
+    assert all("secure" not in c.lower() for c in issued)
+    # Leftover "__Host-" cookies from secure mode are expired (Secure is required for that).
+    expired = [c for c in _set_cookie_headers(response) if "max-age=0" in c.lower()]
+    assert {c.split("=", 1)[0] for c in expired} == {"__Host-cheena_session", "__Host-cheena_csrf"}
 
 
 def test_insecure_cookies_are_rejected_in_production() -> None:

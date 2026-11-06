@@ -5,6 +5,12 @@ from app.core.config import get_settings
 
 _settings = get_settings()
 
+# Production: evaluate at :05 and :35; E2E verification may shorten both intervals.
+_evaluate_every = _settings.reminder_evaluate_interval_seconds
+_evaluate_schedule = _evaluate_every if _evaluate_every else crontab(minute="5,35")
+_evaluate_expires = max(1.0, _evaluate_every * 0.9) if _evaluate_every else 25 * 60
+_dispatch_every = _settings.outbox_dispatch_interval_seconds
+
 celery_app = Celery(
     "cheena",
     broker=_settings.celery_broker_url or _settings.redis_url,
@@ -27,14 +33,14 @@ celery_app.conf.update(
         # missed run is made up the same day.
         "reminders-evaluate": {
             "task": "reminders.evaluate",
-            "schedule": crontab(minute="5,35"),
-            "options": {"expires": 25 * 60},
+            "schedule": _evaluate_schedule,
+            "options": {"expires": _evaluate_expires},
         },
         # Retries, recovery after crashes, and anything queued meanwhile.
         "email-outbox-dispatch": {
             "task": "email_outbox.dispatch",
-            "schedule": 60.0,
-            "options": {"expires": 55},
+            "schedule": _dispatch_every,
+            "options": {"expires": max(1.0, _dispatch_every * 0.9)},
         },
     },
 )

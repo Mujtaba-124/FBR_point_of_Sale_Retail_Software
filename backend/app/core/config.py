@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Allow SMTP hosts on private/loopback networks. Development/testing only;
     # rejected in production.
     smtp_allow_private_hosts: bool = False
+    # Separate AES-256-GCM key for shop FBR tokens (key separation from SMTP).
+    # Back it up separately from database backups; rotate via the previous list.
+    fbr_token_encryption_key: str | None = None
+    fbr_token_previous_keys: str = ""
     smtp_timeout_seconds: float = 15.0
     test_email_rate_window_seconds: int = 15 * 60
     test_email_max_per_window: int = 5
@@ -58,6 +62,18 @@ class Settings(BaseSettings):
     # EMAIL_SINK_DIR instead of sending). "sink" is refused in production.
     email_transport: Literal["smtp", "sink"] = "smtp"
     email_sink_dir: str = "/tmp/cheena_email_sink"
+
+    # --- Background schedule (Celery Beat) ---------------------------------
+    # Unset: reminders are evaluated at minutes :05 and :35. The end-to-end
+    # verification sets short intervals so simulated days pass quickly.
+    reminder_evaluate_interval_seconds: float | None = None
+    outbox_dispatch_interval_seconds: float = 60.0
+
+    # --- End-to-end verification mode (disposable QA stack only) -----------
+    # Enables the simulated clock (app.core.clock) and SMTP fault injection in
+    # the file sink. Refused in production, without the sink transport, and for
+    # any database whose name does not end in "_e2e".
+    e2e_test_mode: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -71,6 +87,18 @@ class Settings(BaseSettings):
     def csrf_cookie_name(self) -> str:
         return "__Host-cheena_csrf" if self.cookie_secure else "cheena_csrf"
 
+    @property
+    def inactive_cookie_names(self) -> tuple[str, str]:
+        """Session and CSRF cookie names of the *other* COOKIE_SECURE mode.
+
+        A browser can still hold them from a time the setting was different. A
+        leftover CSRF cookie is harmful: the browser lists both, the client may
+        send the stale token, and every state-changing request then fails CSRF.
+        """
+        if self.cookie_secure:
+            return ("cheena_session", "cheena_csrf")
+        return ("__Host-cheena_session", "__Host-cheena_csrf")
+
     @model_validator(mode="after")
     def _forbid_insecure_production(self) -> "Settings":
         if self.environment == "production" and not self.cookie_secure:
@@ -79,6 +107,14 @@ class Settings(BaseSettings):
             raise ValueError("SMTP_ALLOW_PRIVATE_HOSTS must be false in production")
         if self.environment == "production" and self.email_transport != "smtp":
             raise ValueError("EMAIL_TRANSPORT must be smtp in production")
+        if self.e2e_test_mode:
+            if self.environment == "production":
+                raise ValueError("E2E_TEST_MODE must be false in production")
+            if self.email_transport != "sink":
+                raise ValueError("E2E_TEST_MODE requires EMAIL_TRANSPORT=sink")
+            database = self.database_url.rsplit("/", 1)[-1].split("?", 1)[0]
+            if not database.endswith("_e2e"):
+                raise ValueError("E2E_TEST_MODE is only allowed on a database named *_e2e")
         return self
 
 

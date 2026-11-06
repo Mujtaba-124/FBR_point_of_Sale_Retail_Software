@@ -74,7 +74,7 @@ const renewedResponse: RenewResponse = {
 };
 
 function renderView(data = management(), history = emptyHistory) {
-  return render(<SubscriptionManagementView data={data} history={history} />);
+  return render(<SubscriptionManagementView data={data} history={history} allowance={null} />);
 }
 
 async function openDialog(user: ReturnType<typeof userEvent.setup>) {

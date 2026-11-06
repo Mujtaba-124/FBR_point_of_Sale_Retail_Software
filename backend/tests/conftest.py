@@ -28,6 +28,8 @@ os.environ["EMAIL_SETTINGS_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(
     secrets.token_bytes(32)
 ).decode()
 os.environ["EMAIL_SETTINGS_PREVIOUS_KEYS"] = ""
+os.environ["FBR_TOKEN_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+os.environ["FBR_TOKEN_PREVIOUS_KEYS"] = ""
 os.environ["SMTP_ALLOW_PRIVATE_HOSTS"] = "false"
 
 import pytest  # noqa: E402
@@ -85,13 +87,26 @@ def _clean_state() -> Iterator[None]:
         conn.execute(text("SET LOCAL session_replication_role = origin"))
         conn.execute(text("DELETE FROM email_delivery_attempts"))
         conn.execute(text("DELETE FROM email_outbox"))
+        # Assignments restrict shop deletion; removing the access rows cascades them.
+        conn.execute(text("DELETE FROM user_shop_access"))
+        conn.execute(text("DELETE FROM shops"))
+        # The allowance row cannot be deleted (trigger); reset it to the migration state.
+        conn.execute(
+            text(
+                "UPDATE shop_allowance SET mode = 'unlimited', max_shops = NULL, "
+                "version = 1, updated_by_user_id = NULL"
+            )
+        )
         conn.execute(text("DELETE FROM app_subscription"))
         conn.execute(text("DELETE FROM email_settings"))
         conn.execute(text("DELETE FROM subscription_reminder_settings"))
         conn.execute(text("INSERT INTO subscription_reminder_settings (id) VALUES (1)"))
         conn.execute(text("DELETE FROM audit_events"))
         conn.execute(text("DELETE FROM authentication_sessions"))
+        conn.execute(text("DELETE FROM password_setup_tokens"))
         conn.execute(text("DELETE FROM users"))
+        # Custom roles only; the two system roles come from the migration.
+        conn.execute(text("DELETE FROM company_roles WHERE system_key IS NULL"))
     redis = get_redis()
     assert redis.connection_pool.connection_kwargs.get("db") == 15
     redis.flushdb()

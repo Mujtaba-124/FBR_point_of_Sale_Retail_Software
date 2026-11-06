@@ -49,6 +49,9 @@ services:
       # the secret store; no default. Without it, saving a password fails securely.
       EMAIL_SETTINGS_ENCRYPTION_KEY: ${EMAIL_SETTINGS_ENCRYPTION_KEY:-}
       EMAIL_SETTINGS_PREVIOUS_KEYS: ${EMAIL_SETTINGS_PREVIOUS_KEYS:-}
+      # Separate key for shop FBR tokens (never the SMTP key). No default.
+      FBR_TOKEN_ENCRYPTION_KEY: ${FBR_TOKEN_ENCRYPTION_KEY:-}
+      FBR_TOKEN_PREVIOUS_KEYS: ${FBR_TOKEN_PREVIOUS_KEYS:-}
       SMTP_ALLOW_PRIVATE_HOSTS: ${SMTP_ALLOW_PRIVATE_HOSTS:-false}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
     ports:
