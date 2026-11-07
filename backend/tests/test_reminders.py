@@ -675,7 +675,7 @@ def test_template_escapes_html_and_has_plain_text() -> None:
     assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; Co" in content.html
     assert '<script>alert("x")</script> & Co' in content.text  # plain text is not HTML
     assert content.subject == "Cheena FBR POS — Subscription expires in 2 days"
-    assert "20 Mar 2027" in content.text
+    assert "20/03/2027" in content.text  # DD/MM/YYYY standard
     assert "http" not in content.text and "http" not in content.html.replace("https", "")
 
 

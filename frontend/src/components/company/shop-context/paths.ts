@@ -6,12 +6,12 @@
  * browser storage is involved. Administrative pages (User Management, Roles &
  * Permissions, Shop Management) are company-wide and never receive it.
  *
- * Future modules (uploads, approvals, FBR sync, reports) are added here when
- * they are built.
+ * Future modules (approvals, FBR sync, reports) are added here when they are
+ * built.
  */
 export const SHOP_PARAM = "shop";
 
-const SHOP_AWARE_PATHS = ["/company"] as const;
+const SHOP_AWARE_PATHS = ["/company", "/company/uploads"] as const;
 
 export function isShopAwarePath(pathname: string): boolean {
   return (SHOP_AWARE_PATHS as readonly string[]).includes(pathname);

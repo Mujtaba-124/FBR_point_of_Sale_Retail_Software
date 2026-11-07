@@ -16,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { type ShopAbilities, ShopFormDialog, TokenBadge } from "@/components/company/shops/shop-form-dialog";
+import { type ShopAbilities, ShopFormDialog, TaxRateBadge, TokenBadge } from "@/components/company/shops/shop-form-dialog";
 import { SHOPS_PAGE_SIZE } from "@/components/company/shops/constants";
 import { NO_CREDENTIAL_AUTOFILL } from "@/components/company/shops/no-autofill";
 import { ConfirmDialog, ErrorAlert, INPUT_CLASS, Pill, PRIMARY_BUTTON, SELECT_CLASS, SuccessNote } from "@/components/company/ui-kit";
@@ -234,6 +234,7 @@ export function ShopsView({ initial, can }: { initial: ShopPage; can: ShopAbilit
                       <SortHeader label="Shop Code" field="code" query={query} onSort={sortBy} />
                       <SortHeader label="Branch Name" field="branch" query={query} onSort={sortBy} />
                       <SortHeader label="POS ID" field="pos_id" query={query} onSort={sortBy} />
+                      <th scope="col" className="py-2 pr-3 font-medium whitespace-nowrap">Sales Tax %</th>
                       <SortHeader label="Status" field="status" query={query} onSort={sortBy} />
                       <th scope="col" className="py-2 pr-3 font-medium">FBR Token</th>
                       <th scope="col" className="py-2 text-right font-medium">Actions</th>
@@ -246,6 +247,7 @@ export function ShopsView({ initial, can }: { initial: ShopPage; can: ShopAbilit
                         <td className="py-3 pr-3 font-mono text-xs text-slate-700">{s.code}</td>
                         <td className="py-3 pr-3 text-slate-700">{s.branch_name}</td>
                         <td className="py-3 pr-3 font-mono text-xs text-slate-700">{s.pos_id}</td>
+                        <td className="py-3 pr-3 whitespace-nowrap"><TaxRateBadge rate={s.sales_tax_rate} /></td>
                         <td className="py-3 pr-3"><StatusPill shop={s} /></td>
                         <td className="py-3 pr-3"><TokenBadge status={s.fbr_token_status} /></td>
                         <td className="py-3 text-right">
@@ -270,6 +272,8 @@ export function ShopsView({ initial, can }: { initial: ShopPage; can: ShopAbilit
                       <dd className="break-words text-slate-800">{s.branch_name}</dd>
                       <dt className="text-slate-500">POS ID</dt>
                       <dd className="break-all font-mono text-slate-800">{s.pos_id}</dd>
+                      <dt className="text-slate-500">Sales Tax %</dt>
+                      <dd><TaxRateBadge rate={s.sales_tax_rate} /></dd>
                     </dl>
                     <div className="mt-2"><TokenBadge status={s.fbr_token_status} /></div>
                     <div className="mt-2">

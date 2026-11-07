@@ -10,6 +10,7 @@ object and Redis client points at those isolated resources.
 import base64
 import os
 import secrets
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -31,6 +32,8 @@ os.environ["EMAIL_SETTINGS_PREVIOUS_KEYS"] = ""
 os.environ["FBR_TOKEN_ENCRYPTION_KEY"] = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
 os.environ["FBR_TOKEN_PREVIOUS_KEYS"] = ""
 os.environ["SMTP_ALLOW_PRIVATE_HOSTS"] = "false"
+# Original Excel uploads go to a throwaway directory, never the real volume.
+os.environ["UPLOAD_STORAGE_DIR"] = tempfile.mkdtemp(prefix="cheena_uploads_test_")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -84,6 +87,10 @@ def _clean_state() -> Iterator[None]:
         # disposable test database are triggers bypassed to reset it.
         conn.execute(text("SET LOCAL session_replication_role = replica"))
         conn.execute(text("DELETE FROM subscription_renewals"))
+        # Sales uploads are append-only too; uploads reference shops, so first.
+        conn.execute(text("DELETE FROM sales_records"))
+        conn.execute(text("DELETE FROM upload_revisions"))
+        conn.execute(text("DELETE FROM upload_batches"))
         conn.execute(text("SET LOCAL session_replication_role = origin"))
         conn.execute(text("DELETE FROM email_delivery_attempts"))
         conn.execute(text("DELETE FROM email_outbox"))

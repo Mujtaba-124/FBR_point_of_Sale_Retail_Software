@@ -30,7 +30,7 @@ const FULL: ShopAbilities = { create: true, edit: true, toggle: true, manageToke
 function shop(overrides: Partial<Shop> = {}): Shop {
   return {
     id: crypto.randomUUID(), name: "Main Store", branch_name: "Gulberg", code: "LHR-01", pos_id: "000123",
-    status: "active", fbr_token_status: "configured", fbr_token_updated_at: "2026-11-06T05:00:00Z",
+    status: "active", fbr_token_status: "configured", fbr_token_updated_at: "2026-11-06T05:00:00Z", sales_tax_rate: "18.00",
     version: 1, created_at: "2026-11-06T05:00:00Z", updated_at: "2026-11-06T05:00:00Z", ...overrides,
   };
 }
@@ -281,6 +281,7 @@ describe("Shops page — autofill and stale state", () => {
     await user.type(within(dialog).getByLabelText("Branch Name"), "Johar Town");
     await user.type(within(dialog).getByLabelText("Shop Code"), "LHR-03");
     await user.type(within(dialog).getByLabelText("POS ID"), "000123");
+    await user.type(within(dialog).getByLabelText("Sales Tax %"), "18");
     await user.type(within(dialog).getByLabelText("FBR Token (optional)"), "QA-DUMMY-TOKEN-3");
     await user.click(within(dialog).getByRole("button", { name: "Add shop" }));
     expect(await within(dialog).findByText("Another shop already uses this POS ID.")).toBeTruthy();

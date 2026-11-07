@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     func,
@@ -45,6 +47,10 @@ class Shop(Base):
             "(encrypted_fbr_token IS NULL) = (fbr_token_updated_at IS NULL)",
             name="ck_shops_fbr_token_state",
         ),
+        CheckConstraint(
+            "sales_tax_rate IS NULL OR (sales_tax_rate >= 0 AND sales_tax_rate <= 100)",
+            name="ck_shops_sales_tax_rate",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -59,6 +65,10 @@ class Shop(Base):
     pos_id: Mapped[str] = mapped_column(String(50), nullable=False)
     encrypted_fbr_token: Mapped[str | None] = mapped_column(Text)
     fbr_token_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Sales Tax % applied to new upload batches (tax exclusive). NULL = not configured
+    # (shops created before Phase 4.2): no rate is ever assumed. Saved uploads keep
+    # their own snapshot (upload_revisions.applied_sales_tax_rate) and never follow it.
+    sales_tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )

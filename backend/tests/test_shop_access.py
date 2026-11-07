@@ -653,7 +653,13 @@ def test_new_shops_reach_all_shops_users_only(
     selected = staff(db, make_user, ["uploads.view"], mode="selected", shops=[a])
     created = admin.post(
         "/api/v1/company/shops",
-        json={"name": "Brand New", "branch_name": "X", "code": "NEW-1", "pos_id": "900"},
+        json={
+            "name": "Brand New",
+            "branch_name": "X",
+            "code": "NEW-1",
+            "pos_id": "900",
+            "sales_tax_rate": "18",
+        },
         headers=h(admin),
     )
     assert created.status_code == 201

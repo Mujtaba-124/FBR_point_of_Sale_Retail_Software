@@ -49,7 +49,8 @@ async function toApiError(response: Response): Promise<ApiError> {
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set("Content-Type", "application/json");
+  // JSON unless the caller sent something else (e.g. an .xlsx file body).
+  if (init.body !== undefined && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const method = (init.method ?? "GET").toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     const csrf = readCsrfToken();

@@ -10,6 +10,7 @@ from app.api.routes import (
     shop_context,
     shops,
     subscription,
+    uploads,
     workspaces,
 )
 
@@ -27,4 +28,5 @@ v1_router.include_router(workspaces.company_router)
 v1_router.include_router(company_users.router)
 v1_router.include_router(shops.router)
 v1_router.include_router(shop_context.router)
+v1_router.include_router(uploads.router)
 api_router.include_router(v1_router)

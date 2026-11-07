@@ -42,7 +42,7 @@ export function Field({
 }) {
   return (
     <div className={cn("min-w-0 space-y-2", className)}>
-      <Label htmlFor={id} className="text-sm font-medium text-slate-700">
+      <Label id={`${id}-label`} htmlFor={id} className="text-sm font-medium text-slate-700">
         {label}
       </Label>
       {children}

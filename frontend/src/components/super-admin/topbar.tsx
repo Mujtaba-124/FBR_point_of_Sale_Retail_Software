@@ -15,7 +15,7 @@ export function Topbar({
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
         {description && <p className="text-sm text-slate-500">{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-3">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-3">{actions}</div>}
     </header>
   );
 }

@@ -97,6 +97,7 @@ def create_shop(payload: CreateShopRequest, user: ShopCreator, db: DbSession) ->
         code=payload.code,
         pos_id=payload.pos_id,
         fbr_token=token,
+        sales_tax_rate=payload.sales_tax_rate,
     )
     return ShopOut.from_model(shop)
 
@@ -119,6 +120,8 @@ def update_shop(
         branch_name=payload.branch_name,
         code=payload.code,
         pos_id=payload.pos_id,
+        sales_tax_rate=payload.sales_tax_rate,
+        sales_tax_rate_given="sales_tax_rate" in payload.model_fields_set,
     )
     return ShopOut.from_model(shop)
 

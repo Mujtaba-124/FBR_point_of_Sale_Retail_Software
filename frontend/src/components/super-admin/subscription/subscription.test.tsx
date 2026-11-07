@@ -83,8 +83,11 @@ async function openDialog(user: ReturnType<typeof userEvent.setup>) {
 }
 
 /** Pick a date through the calendar popup (year/month dropdowns, then the day). */
+const expiryField = () => screen.getByRole("textbox", { name: "New expiry date" }) as HTMLInputElement;
+const calendarButton = () => screen.getByRole("button", { name: /Open calendar: New expiry date/ });
+
 async function pickDate(user: ReturnType<typeof userEvent.setup>, iso: string) {
-  await user.click(screen.getByRole("button", { name: /New expiry date/ }));
+  await user.click(calendarButton());
   const [y, m] = iso.split("-").map(Number);
   await user.selectOptions(await screen.findByRole("combobox", { name: "Choose the Year" }), String(y));
   await user.selectOptions(screen.getByRole("combobox", { name: "Choose the Month" }), String(m - 1));
@@ -105,7 +108,7 @@ describe("Subscription overview", () => {
   it("shows the database-backed values", () => {
     renderView();
     const overview = screen.getByRole("region", { name: "Subscription Overview" });
-    for (const text of ["Cheena", "05 Nov 2026", "04 Nov 2027", "Active", "365 days", "1 day", "No renewal recorded"]) {
+    for (const text of ["Cheena", "05/11/2026", "04/11/2027", "Active", "365 days", "1 day", "No renewal recorded"]) {
       expect(within(overview).getByText(text)).toBeTruthy();
     }
     expect(screen.getByTestId("days-remaining").textContent).toBe("364");
@@ -132,8 +135,8 @@ describe("Renewal dialog", () => {
 
     const dialog = await openDialog(user);
     expect(within(dialog).getByText("Cheena")).toBeTruthy();
-    expect(within(dialog).getByText("05 Nov 2026")).toBeTruthy();
-    expect(within(dialog).getByText("04 Nov 2027")).toBeTruthy();
+    expect(within(dialog).getByText("05/11/2026")).toBeTruthy();
+    expect(within(dialog).getByText("04/11/2027")).toBeTruthy();
     expect(within(dialog).queryByRole("textbox", { name: /start/i })).toBeNull();
 
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -144,20 +147,29 @@ describe("Renewal dialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("starts at the earliest valid date, shown as DD MMM YYYY", async () => {
+  it("starts at the earliest valid date, shown as DD/MM/YYYY", async () => {
     const user = userEvent.setup({ delay: null });
     renderView();
     await openDialog(user);
-    const trigger = screen.getByRole("button", { name: /New expiry date/ });
-    expect(trigger.textContent).toBe("05 Nov 2027");
-    expect(trigger.getAttribute("aria-invalid")).toBeNull();
+    expect(expiryField().value).toBe("05/11/2027");
+    expect(expiryField().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("accepts a typed DD/MM/YYYY expiry date (04/11/2028 = 4 November 2028)", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderView();
+    const dialog = await openDialog(user);
+    await user.clear(expiryField());
+    await user.type(expiryField(), "04/11/2028");
+    await user.click(screen.getByRole("button", { name: /Review renewal/ }));
+    expect(within(dialog).getByText("04/11/2027 → 04/11/2028")).toBeTruthy();
   });
 
   it("cannot select the unchanged or an earlier expiry date", async () => {
     const user = userEvent.setup({ delay: null });
     renderView();
     await openDialog(user);
-    await user.click(screen.getByRole("button", { name: /New expiry date/ }));
+    await user.click(calendarButton());
 
     for (const iso of ["2027-11-04", "2027-11-01"]) {
       const button = document.querySelector<HTMLButtonElement>(`td[data-day="${iso}"] button`)!;
@@ -165,7 +177,7 @@ describe("Renewal dialog", () => {
       await user.click(button);
     }
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("button", { name: /New expiry date/ }).textContent).toBe("05 Nov 2027");
+    expect(expiryField().value).toBe("05/11/2027");
     expect(mockedFetch).not.toHaveBeenCalled();
   });
 
@@ -178,9 +190,9 @@ describe("Renewal dialog", () => {
     await reviewWithDate(user, "2028-11-04");
 
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("04 Nov 2027 → 04 Nov 2028")).toBeTruthy();
+    expect(within(dialog).getByText("04/11/2027 → 04/11/2028")).toBeTruthy();
     expect(within(dialog).getByText("+366 days")).toBeTruthy();
-    expect(within(dialog).getByText("05 Nov 2026 (unchanged)")).toBeTruthy();
+    expect(within(dialog).getByText("05/11/2026 (unchanged)")).toBeTruthy();
     expect(within(dialog).getByText("731 days")).toBeTruthy(); // new total
     expect(mockedFetch).not.toHaveBeenCalled(); // nothing saved before confirmation
 
@@ -198,7 +210,7 @@ describe("Renewal dialog", () => {
     expect(body.idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByRole("status").textContent).toMatch(/Subscription renewed.*04 Nov 2028/);
+    expect(screen.getByRole("status").textContent).toMatch(/Subscription renewed.*04\/11\/2028/);
     expect(router.refresh).toHaveBeenCalledTimes(1); // Dashboard/history re-fetch
   });
 
@@ -264,7 +276,7 @@ describe("Renewal dialog", () => {
     await user.click(screen.getByRole("button", { name: "Confirm renewal" }));
 
     expect((await screen.findByRole("alert")).textContent).toMatch(/later than today/);
-    expect(screen.getByLabelText("New expiry date")).toBeTruthy();
+    expect(expiryField()).toBeTruthy();
   });
 
   it("is operable from the keyboard", async () => {
@@ -304,9 +316,9 @@ describe("RenewalHistory", () => {
   it("lists renewals read-only, with times in Pakistan time", () => {
     render(<RenewalHistory initial={{ items: [renewedResponse.renewal], total: 1, limit: 10, offset: 0 }} />);
     const table = screen.getByRole("table");
-    expect(within(table).getByText("05 Nov 2026, 14:30")).toBeTruthy(); // 09:30 UTC = 14:30 PKT
-    expect(within(table).getByText("04 Nov 2027")).toBeTruthy();
-    expect(within(table).getByText("04 Nov 2028")).toBeTruthy();
+    expect(within(table).getByText("05/11/2026 14:30")).toBeTruthy(); // 09:30 UTC = 14:30 PKT
+    expect(within(table).getByText("04/11/2027")).toBeTruthy();
+    expect(within(table).getByText("04/11/2028")).toBeTruthy();
     expect(within(table).getByText("Owner")).toBeTruthy();
     expect(within(table).getByText("Annual")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull(); // no edit/delete controls

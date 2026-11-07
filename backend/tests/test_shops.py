@@ -70,6 +70,7 @@ def body(**overrides: object) -> dict[str, object]:
         "branch_name": "Gulberg",
         "code": "LHR-01",
         "pos_id": "000123",
+        "sales_tax_rate": "18",
     }
     data.update(overrides)
     return data
@@ -178,6 +179,7 @@ def test_database_enforces_uniqueness_under_concurrency(admin: TestClient, db: S
                     code="RACE" if i % 2 else "race",
                     pos_id=f"P{i}",
                     fbr_token=None,
+                    sales_tax_rate="18",
                 )
                 outcomes.append("created")
             except AppError as exc:

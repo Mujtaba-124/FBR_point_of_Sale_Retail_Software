@@ -273,8 +273,8 @@ export type CompanyDashboard = {
     pending_approvals: DashboardMetric;
     pending_fbr_sync: DashboardMetric;
   };
-  sales_overview: { available: false; unavailable_reason: string };
-  recent_uploads: { available: false; unavailable_reason: string };
+  sales_overview: SalesOverview;
+  recent_uploads: { available: boolean; unavailable_reason: string | null; items: RecentUpload[] };
   shop_allowance: ShopAllowanceSummary;
   /** The shop context the response was built for. */
   context: ShopContextInfo;
@@ -382,6 +382,8 @@ export type Shop = {
   status: "active" | "inactive";
   fbr_token_status: "configured" | "not_configured" | "unreadable";
   fbr_token_updated_at: string | null;
+  /** Exact decimal text ("18.00"); null = not configured (no new uploads until set). */
+  sales_tax_rate: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -432,3 +434,133 @@ export type ShopOptions = {
 };
 
 export type ShopContextInfo = { scope: "all" | "shop"; shop: ShopOption | null };
+
+// --- Excel uploads (Phase 4) ----------------------------------------------------------
+
+/** Money and quantities arrive as exact decimal strings (never floats). */
+export type Decimalish = string;
+
+export type UploadStatus = "draft" | "wait_for_approval" | "accepted" | "rejected";
+
+export type UploadTotals = { amount: Decimalish; sales_tax: Decimalish; net_amount: Decimalish };
+
+export type UploadShop = { id: string; name: string; code: string; status: "active" | "inactive" };
+
+export type UploadRowError = { row: number | null; column: string | null; code: string; message: string };
+
+/** CNIC/NTN is masked by the backend (last 4 characters only). */
+export type SalesRecordRow = {
+  excel_row: number;
+  sale_date: string;
+  sale_time: string;
+  /** null only for rows of a previous 10-column revision (no Item column then). */
+  item: string | null;
+  customer_name: string | null;
+  cnic_ntn: string | null;
+  quantity: Decimalish;
+  rate: Decimalish;
+  amount: Decimalish;
+  tax_percent: Decimalish;
+  tax_amount: Decimalish;
+  net_amount: Decimalish;
+};
+
+export type UploadPreview = {
+  shop: UploadShop;
+  sales_date: string;
+  filename: string;
+  file_size: number;
+  checksum: string;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  error_count: number;
+  errors: UploadRowError[];
+  errors_truncated: boolean;
+  rounding_differences: number;
+  /** The rate the totals were calculated with; sent back when saving. */
+  applied_sales_tax_rate: Decimalish;
+  /** "shop": a new Draft uses the shop's rate; "draft": a replacement keeps the Draft's rate. */
+  tax_rate_source: "shop" | "draft";
+  totals: UploadTotals;
+  rows: SalesRecordRow[];
+  can_save: boolean;
+  existing: {
+    id: string;
+    status: UploadStatus;
+    current_revision: number;
+    total_records: number;
+    can_replace: boolean;
+  } | null;
+};
+
+export type UploadTemplateFormat = "legacy_10col" | "standard_8col";
+export type UploadTaxSource = "shop" | "draft" | "legacy_rows" | "legacy_mixed";
+
+/** Saved tax context: null rate only for a legacy revision with mixed per-row rates. */
+export type UploadTaxContext = {
+  template_format: UploadTemplateFormat;
+  applied_sales_tax_rate: Decimalish | null;
+  tax_rate_source: UploadTaxSource;
+};
+
+export type UploadBatch = UploadTaxContext & {
+  id: string;
+  shop: UploadShop;
+  sales_date: string;
+  filename: string;
+  status: UploadStatus;
+  current_revision: number;
+  total_records: number;
+  totals: UploadTotals;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  created_at: string;
+  can_replace: boolean;
+};
+
+export type UploadPage = {
+  items: UploadBatch[];
+  total: number;
+  limit: number;
+  offset: number;
+  context: ShopContextInfo;
+};
+
+export type UploadRevision = UploadTaxContext & {
+  revision_number: number;
+  filename: string;
+  file_size: number;
+  checksum: string;
+  total_records: number;
+  totals: UploadTotals;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  is_current: boolean;
+};
+
+export type UploadDetail = { batch: UploadBatch; revisions: UploadRevision[] };
+
+export type SalesRecordPage = { items: SalesRecordRow[]; total: number; limit: number; offset: number; revision: number };
+
+export type SalesOverview = {
+  available: boolean;
+  unavailable_reason: string | null;
+  uploads: number;
+  records: number;
+  total_amount: Decimalish;
+  total_sales_tax: Decimalish;
+  total_net_amount: Decimalish;
+  status_note: string;
+};
+
+export type RecentUpload = {
+  id: string;
+  sales_date: string;
+  shop_name: string;
+  shop_code: string;
+  total_records: number;
+  total_net_amount: Decimalish;
+  status: UploadStatus;
+  uploaded_at: string;
+};

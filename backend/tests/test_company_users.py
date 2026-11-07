@@ -635,7 +635,8 @@ def test_permission_catalog_marks_unavailable_modules(admin: TestClient) -> None
     assert modules["dashboard"]["available"] is True
     assert modules["users"]["admin_only"] is True and modules["roles"]["admin_only"] is True
     assert modules["shops"]["available"] is True  # Shop Management (Phase 3)
-    for key in ("uploads", "approvals", "fbr_sync", "reports"):
+    assert modules["uploads"]["available"] is True  # Excel Uploads (Phase 4)
+    for key in ("approvals", "fbr_sync", "reports"):
         assert modules[key]["available"] is False
     assert {c["key"] for c in modules["fbr_sync"]["capabilities"]} == {
         "fbr_sync.view",

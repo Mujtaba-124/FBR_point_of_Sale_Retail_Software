@@ -114,8 +114,8 @@ const SUMMARY: CompanyDashboard = {
     pending_approvals: { available: false, value: null, unavailable_reason: "b" },
     pending_fbr_sync: { available: false, value: null, unavailable_reason: "c" },
   },
-  sales_overview: { available: false, unavailable_reason: "d" },
-  recent_uploads: { available: false, unavailable_reason: "d" },
+  sales_overview: { available: true, unavailable_reason: null, uploads: 0, records: 0, total_amount: "0", total_sales_tax: "0", total_net_amount: "0", status_note: "Draft uploads: not yet approved or sent to FBR." },
+  recent_uploads: { available: true, unavailable_reason: null, items: [] },
   shop_allowance: { mode: "unlimited", max_shops: null, registered_shops: 0, available_slots: null, at_capacity: false, over_limit: false },
   context: { scope: "all", shop: null }, metric_scopes: { total_shops: "company", active_users: "company" },
 };
@@ -160,7 +160,22 @@ describe("Company dashboard data", () => {
     await renderSection();
     expect(fetchBackendDetailed).not.toHaveBeenCalled();
     expect(screen.getByText("Welcome to the Company Workspace")).toBeTruthy();
+    expect(screen.getByText(/No released modules/)).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Active Users" })).toBeNull();
+  });
+
+  it("links a Company User to the released modules they hold", async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue({
+      status: "ok",
+      // /auth/me also carries the display-hint permissions.
+      data: Object.assign(user("company_user"), { permissions: ["dashboard.view", "uploads.view", "approvals.view"] }),
+    });
+    await renderSection();
+    expect(fetchBackendDetailed).not.toHaveBeenCalled();
+    expect(screen.queryByText(/No released modules/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Excel Uploads" }).getAttribute("href")).toBe("/company/uploads");
+    // Unreleased modules are never offered to Company Users.
+    expect(screen.queryByRole("link", { name: "Approvals" })).toBeNull();
   });
 
   it("shows an error state instead of zeros when the API fails", async () => {

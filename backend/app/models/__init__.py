@@ -10,6 +10,7 @@ from app.models.shop import Shop
 from app.models.shop_access import UserShopAccess, UserShopAssignment
 from app.models.shop_allowance import ShopAllowance
 from app.models.subscription_renewal import SubscriptionRenewal
+from app.models.uploads import SalesRecord, UploadBatch, UploadRevision
 from app.models.user import AccessCategory, User
 
 __all__ = [
@@ -26,7 +27,10 @@ __all__ = [
     "Shop",
     "ShopAllowance",
     "SubscriptionReminderSettings",
+    "SalesRecord",
     "SubscriptionRenewal",
+    "UploadBatch",
+    "UploadRevision",
     "User",
     "UserShopAccess",
     "UserShopAssignment",

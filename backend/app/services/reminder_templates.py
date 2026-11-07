@@ -10,6 +10,7 @@ import html
 from dataclasses import dataclass
 from datetime import date
 
+from app.core.dates import display_date
 from app.services.reminder_schedule import ReminderStage
 
 BRAND = "Cheena FBR POS"
@@ -28,7 +29,7 @@ def _days(n: int) -> str:
 
 
 def format_date(value: date) -> str:
-    return value.strftime("%d %b %Y")
+    return display_date(value)
 
 
 def render_reminder(

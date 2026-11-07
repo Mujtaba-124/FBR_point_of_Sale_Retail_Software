@@ -54,8 +54,8 @@ function dashboard(activeUsers: number | null = 3): CompanyDashboard {
       pending_approvals: UNAVAILABLE("approval_workflow_not_available"),
       pending_fbr_sync: UNAVAILABLE("fbr_sync_not_available"),
     },
-    sales_overview: { available: false, unavailable_reason: "excel_upload_not_available" },
-    recent_uploads: { available: false, unavailable_reason: "excel_upload_not_available" },
+    sales_overview: { available: true, unavailable_reason: null, uploads: 0, records: 0, total_amount: "0", total_sales_tax: "0", total_net_amount: "0", status_note: "Draft uploads: not yet approved or sent to FBR." },
+    recent_uploads: { available: true, unavailable_reason: null, items: [] },
     shop_allowance: { mode: "unlimited", max_shops: null, registered_shops: 4, available_slots: null, at_capacity: false, over_limit: false },
     context: { scope: "all", shop: null }, metric_scopes: { total_shops: "company", active_users: "company" },
   };
@@ -71,13 +71,14 @@ describe("Company sidebar", () => {
       "/company/users",
       "/company/roles",
       "/company/shops",
+      "/company/uploads", // Excel Uploads (Phase 4)
     ]);
-    for (const label of ["Excel Uploads", "Approvals", "FBR Sync", "Reports"]) {
+    for (const label of ["Approvals", "FBR Sync", "Reports"]) {
       const entry = within(nav).getByText(label).closest("[aria-disabled]");
       expect(entry?.getAttribute("aria-disabled")).toBe("true");
       expect(entry?.tagName).not.toBe("A");
     }
-    expect(within(nav).getAllByText(/not available yet/)).toHaveLength(4);
+    expect(within(nav).getAllByText(/not available yet/)).toHaveLength(3);
   });
 
   it("marks Dashboard as the current page", () => {
@@ -104,6 +105,7 @@ describe("Company sidebar", () => {
       "/company/users",
       "/company/roles",
       "/company/shops",
+      "/company/uploads",
     ]);
     expect(navFor("super_admin", ADMIN_PERMS)).toEqual([]);
   });
@@ -162,14 +164,33 @@ describe("Company dashboard", () => {
     }
   });
 
-  it("does not fabricate sales figures", () => {
+  it("shows real (here zero) sales totals, labelled as Draft", () => {
     render(<CompanyDashboardView data={dashboard()} />);
     const sales = screen.getByRole("region", { name: "Sales Overview" });
     for (const label of ["Total Sales Amount", "Sales Tax Amount", "Net Sales Amount", "Uploaded Invoices"]) {
       expect(within(sales).getByText(label)).toBeTruthy();
     }
-    expect(sales.textContent).not.toMatch(/\d/);
-    expect(within(sales).getByText(/available once Excel Upload is implemented/)).toBeTruthy();
+    expect(within(sales).getByTestId("sales-net-sales-amount").textContent).toBe("0.00");
+    expect(within(sales).getByText("Draft")).toBeTruthy();
+    expect(within(sales).getByText(/No sales files have been uploaded/)).toBeTruthy();
+  });
+
+  it("shows saved upload totals and recent uploads", () => {
+    const data = dashboard();
+    data.sales_overview = { ...data.sales_overview, uploads: 2, records: 3, total_amount: "6000", total_sales_tax: "1080", total_net_amount: "7080" };
+    data.recent_uploads = {
+      available: true,
+      unavailable_reason: null,
+      items: [{ id: "b1", sales_date: "2026-11-06", shop_name: "Main", shop_code: "CH-001", total_records: 3, total_net_amount: "7080.00", status: "draft", uploaded_at: "2026-11-07T05:00:00Z" }],
+    };
+    render(<CompanyDashboardView data={data} />);
+    const sales = screen.getByRole("region", { name: "Sales Overview" });
+    expect(within(sales).getByTestId("sales-net-sales-amount").textContent).toBe("7,080.00");
+    expect(within(sales).getByTestId("sales-uploaded-invoices").textContent).toBe("3");
+    expect(within(sales).getByText(/not yet approved or sent to FBR/)).toBeTruthy();
+    const recent = screen.getByRole("region", { name: "Recent Excel Uploads" });
+    expect(within(recent).getByRole("link").getAttribute("href")).toBe("/company/uploads/b1");
+    expect(recent.textContent).toContain("06/11/2026");
   });
 
   it("shows the empty upload activity", () => {
@@ -186,12 +207,10 @@ describe("Company dashboard", () => {
     expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
       ["Manage Shops", "/company/shops"],
       ["Manage Users", "/company/users"],
+      ["Upload Excel", "/company/uploads"],
     ]);
     const buttons = within(actions).getAllByRole("button");
-    expect(buttons.map((b) => b.textContent?.replace("Soon", "").trim())).toEqual([
-      "Upload Excel",
-      "View Reports",
-    ]);
+    expect(buttons.map((b) => b.textContent?.replace("Soon", "").trim())).toEqual(["View Reports"]);
     for (const b of buttons) expect((b as HTMLButtonElement).disabled).toBe(true);
   });
 

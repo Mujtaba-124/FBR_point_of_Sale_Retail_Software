@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertCircle, LayoutDashboard, ShieldAlert } from "lucide-react";
 
 import { CompanyDashboardView } from "@/components/company/dashboard-view";
+import { navFor } from "@/components/company/nav-items";
 import { StateCard } from "@/components/super-admin/states";
 import type { CompanyDashboard } from "@/lib/api/types";
 import { fetchBackendDetailed, getCurrentUser } from "@/lib/auth-server";
@@ -25,8 +27,11 @@ export async function CompanyDashboardSection({
   if (me.status === "unauthenticated") redirect("/login?reason=session_expired");
   if (me.status !== "ok") return <CompanyDashboardError />;
 
-  // Company Users have no module permissions yet; the summary is Company Admin only.
-  if (me.data.access_category !== "company_admin") return <CompanyUserWelcome />;
+  // The company-wide summary is Company Admin only; Company Users get their modules.
+  if (me.data.access_category !== "company_admin") {
+    const modules = navFor(me.data.access_category, (me.data as { permissions?: string[] }).permissions ?? []).filter((m) => m.key !== "dashboard");
+    return <CompanyUserWelcome modules={modules.map(({ key, label, href }) => ({ key, label, href: href ?? "" }))} />;
+  }
 
   let result = await fetchBackendDetailed<CompanyDashboard>(summaryPath(shop));
   if (result.status === "rejected" && shop && SHOP_CONTEXT_ERRORS.has(result.code ?? "")) {
@@ -55,11 +60,27 @@ export function CompanyDashboardError() {
   );
 }
 
-export function CompanyUserWelcome() {
+export function CompanyUserWelcome({ modules = [] }: { modules?: { key: string; label: string; href: string }[] }) {
+  if (modules.length === 0) {
+    return (
+      <StateCard icon={LayoutDashboard} title="Welcome to the Company Workspace" role="status">
+        <p>No released modules are assigned to your account yet.</p>
+        <p>Modules your Company Admin grants appear here as soon as they are available.</p>
+      </StateCard>
+    );
+  }
   return (
     <StateCard icon={LayoutDashboard} title="Welcome to the Company Workspace" role="status">
-      <p>No released modules are assigned to your account yet.</p>
-      <p>Modules your Company Admin grants appear here as soon as they are available.</p>
+      <p>Open the modules assigned to you:</p>
+      <ul className="mt-2 flex flex-wrap justify-center gap-2">
+        {modules.map((m) => (
+          <li key={m.key}>
+            <Link href={m.href} className="font-medium text-primary underline-offset-4 hover:underline">
+              {m.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </StateCard>
   );
 }

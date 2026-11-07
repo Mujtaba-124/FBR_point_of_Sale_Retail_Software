@@ -5,9 +5,11 @@ import { Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 
 import {
   FIELD_FOR_CODE,
+  formatTaxRate,
   normalize,
   type ShopErrors,
   type ShopValues,
+  toHundredths,
   tokenProblem,
   validateShop,
 } from "@/components/company/shops/shop-validation";
@@ -45,7 +47,10 @@ type Props = {
   onStale: () => void;
 };
 
-const FIELDS: { key: keyof ShopValues; label: string; hint?: string; max: number }[] = [
+export const TAX_CHANGE_NOTE =
+  "The new Sales Tax % applies to new upload batches. Existing saved uploads and revisions keep their original applied tax rate.";
+
+const FIELDS: { key: Exclude<keyof ShopValues, "sales_tax_rate">; label: string; hint?: string; max: number }[] = [
   { key: "name", label: "Shop Name", max: 120 },
   { key: "branch_name", label: "Branch Name", max: 120 },
   { key: "code", label: "Shop Code", hint: "Unique. Letters, digits, - and _.", max: 20 },
@@ -61,7 +66,9 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
     branch_name: shop?.branch_name ?? "",
     code: shop?.code ?? "",
     pos_id: shop?.pos_id ?? "",
+    sales_tax_rate: shop?.sales_tax_rate ? formatTaxRate(shop.sales_tax_rate).replace(/%$/, "") : "",
   });
+  const [confirmRate, setConfirmRate] = useState(false);
   const [newToken, setNewToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [errors, setErrors] = useState<ShopErrors>({});
@@ -70,17 +77,28 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
   const [saving, setSaving] = useState<"profile" | "token" | null>(null);
   const inFlight = useRef(false);
 
+  const rateText = values.sales_tax_rate.trim().replace(/%$/, "").trim();
+  // Changed only when it is a valid new value (an invalid one is reported on submit).
+  const rateChanged =
+    current !== undefined &&
+    rateText !== "" &&
+    (current.sales_tax_rate === null ||
+      !/^\d{1,3}(\.\d{1,2})?$/.test(rateText) ||
+      toHundredths(rateText) !== toHundredths(current.sales_tax_rate));
   const dirty =
     !editing ||
     (current !== undefined &&
       (normalize(values.name) !== current.name ||
         normalize(values.branch_name) !== current.branch_name ||
         values.code.trim() !== current.code ||
-        values.pos_id.trim() !== current.pos_id));
+        values.pos_id.trim() !== current.pos_id ||
+        rateChanged ||
+        (rateText === "" && current.sales_tax_rate !== null)));
 
   function set(key: keyof ShopValues, value: string) {
     setErrors((e) => ({ ...e, [key]: undefined }));
     setServerError(null);
+    if (key === "sales_tax_rate") setConfirmRate(false);
     setValues((v) => ({ ...v, [key]: value }));
   }
 
@@ -95,13 +113,22 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     if (inFlight.current || readOnly) return;
-    const problems = validateShop(values);
+    // A new shop needs a rate; an older shop may stay "Not configured", but a
+    // configured rate can only be changed, never removed.
+    const problems = validateShop(values, {
+      taxRateRequired: !editing || (current !== undefined && current.sales_tax_rate !== null),
+    });
     if (!editing && can.manageToken && newToken.trim()) {
       const t = tokenProblem(newToken);
       if (t) problems.fbr_token = t;
     }
     setErrors(problems);
     if (Object.values(problems).some(Boolean)) return;
+    // Changing a configured rate needs an explicit second step.
+    if (editing && current?.sales_tax_rate !== null && rateChanged && !confirmRate) {
+      setConfirmRate(true);
+      return;
+    }
     inFlight.current = true;
     setSaving("profile");
     setServerError(null);
@@ -115,15 +142,26 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
       if (current) {
         const saved = await apiFetch<Shop>(`/company/shops/${current.id}`, {
           method: "PATCH",
-          body: JSON.stringify({ ...payload, expected_version: current.version }),
+          body: JSON.stringify({
+            ...payload,
+            ...(rateChanged ? { sales_tax_rate: rateText } : {}),
+            expected_version: current.version,
+          }),
         });
         setCurrent(saved);
-        onSaved(saved, `${saved.name} was updated.`);
+        setConfirmRate(false);
+        onSaved(
+          saved,
+          rateChanged
+            ? `${saved.name} was updated. Sales Tax % is now ${formatTaxRate(saved.sales_tax_rate)} for new uploads.`
+            : `${saved.name} was updated.`,
+        );
       } else {
         const token = can.manageToken && newToken.trim() ? newToken.trim() : null;
+        const body = { ...payload, sales_tax_rate: rateText };
         const saved = await apiFetch<Shop>("/company/shops", {
           method: "POST",
-          body: JSON.stringify(token ? { ...payload, fbr_token: token } : payload),
+          body: JSON.stringify(token ? { ...body, fbr_token: token } : body),
         });
         setNewToken("");
         onSaved(saved, `${saved.name} was added.`);
@@ -215,7 +253,49 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
                 />
               </Field>
             ))}
+            <Field
+              id="shop-sales_tax_rate"
+              label="Sales Tax %"
+              error={errors.sales_tax_rate}
+              hint={
+                editing
+                  ? current?.sales_tax_rate === null
+                    ? "Not configured yet. Set it before this shop can take new Excel uploads."
+                    : "Changes apply to new upload batches only."
+                  : "Applied to this shop's Excel uploads (tax exclusive). 0 to 100, up to 2 decimals."
+              }
+            >
+              <div className="relative">
+                <Input
+                  id="shop-sales_tax_rate"
+                  name="shop_sales_tax_rate"
+                  {...NO_CREDENTIAL_AUTOFILL}
+                  className={cn(INPUT_CLASS, "pr-9 tabular-nums")}
+                  value={values.sales_tax_rate}
+                  onChange={(e) => set("sales_tax_rate", e.target.value)}
+                  disabled={readOnly || busy}
+                  inputMode="decimal"
+                  placeholder="e.g. 18"
+                  maxLength={7}
+                  aria-invalid={errors.sales_tax_rate ? true : undefined}
+                  aria-describedby={errors.sales_tax_rate ? "shop-sales_tax_rate-error" : "shop-sales_tax_rate-hint"}
+                />
+                <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-500" aria-hidden="true">
+                  %
+                </span>
+              </div>
+            </Field>
           </div>
+
+          {confirmRate && current && (
+            <div role="group" aria-label="Confirm Sales Tax % change" className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>
+                Change Sales Tax % from <strong>{formatTaxRate(current.sales_tax_rate)}</strong> to{" "}
+                <strong>{formatTaxRate(rateText)}</strong>?
+              </p>
+              <p>{TAX_CHANGE_NOTE}</p>
+            </div>
+          )}
 
           {!editing && can.manageToken && (
             <TokenInput
@@ -240,12 +320,18 @@ export function ShopFormDialog({ shop, can, onOpenChange, onSaved, onStale, onLi
 
           {!readOnly && (
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" className="h-10" disabled={busy} onClick={() => onOpenChange(false)}>
-                Cancel
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10"
+                disabled={busy}
+                onClick={() => (confirmRate ? setConfirmRate(false) : onOpenChange(false))}
+              >
+                {confirmRate ? "Back" : "Cancel"}
               </Button>
               <Button type="submit" disabled={busy || !dirty} className={PRIMARY_BUTTON}>
                 {saving === "profile" && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-                {saving === "profile" ? "Saving…" : editing ? "Save changes" : "Add shop"}
+                {saving === "profile" ? "Saving…" : confirmRate ? "Confirm and save" : editing ? "Save changes" : "Add shop"}
               </Button>
             </div>
           )}
@@ -376,6 +462,12 @@ function TokenInput({
       </div>
     </Field>
   );
+}
+
+/** Compact Sales Tax % for lists: "18%", "0%", or an amber "Not configured". */
+export function TaxRateBadge({ rate }: { rate: string | null }) {
+  if (rate === null) return <Pill tone="amber">Not configured</Pill>;
+  return <span className="font-medium tabular-nums text-slate-800">{formatTaxRate(rate)}</span>;
 }
 
 export function TokenBadge({ status }: { status: Shop["fbr_token_status"] }) {

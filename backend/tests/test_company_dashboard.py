@@ -62,11 +62,18 @@ def test_company_admin_gets_real_and_unavailable_metrics(
     ):
         # Not built yet: no value at all, never a fabricated zero.
         assert metrics[key] == {"available": False, "value": None, "unavailable_reason": reason}
+    # Excel Uploads exists now (Phase 4): real totals, here none yet, labelled as Draft.
     assert data["sales_overview"] == {
-        "available": False,
-        "unavailable_reason": "excel_upload_not_available",
+        "available": True,
+        "unavailable_reason": None,
+        "uploads": 0,
+        "records": 0,
+        "total_amount": "0",
+        "total_sales_tax": "0",
+        "total_net_amount": "0",
+        "status_note": "Draft uploads: not yet approved or sent to FBR.",
     }
-    assert data["recent_uploads"]["available"] is False
+    assert data["recent_uploads"] == {"available": True, "unavailable_reason": None, "items": []}
 
 
 @pytest.mark.usefixtures("valid_subscription")

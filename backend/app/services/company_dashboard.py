@@ -7,6 +7,7 @@ When a module is built, its metric switches to a real query here.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,6 +15,10 @@ from sqlalchemy.orm import Session
 from app.models import AccessCategory, AppSubscription, User
 from app.models.app_subscription import SINGLETON_ID
 from app.services.shop_allowance import AllowanceUsage, get_usage
+from app.services.shop_context import ShopContext
+
+if TYPE_CHECKING:
+    from app.services.uploads import BatchRow, SalesSummary
 
 # Reason codes for metrics whose module is not implemented yet.
 APPROVALS_NOT_AVAILABLE = "approval_workflow_not_available"
@@ -43,6 +48,8 @@ class CompanyDashboard:
     pending_fbr_sync: Metric
     uploads_reason: str
     shop_allowance: AllowanceUsage
+    sales: "SalesSummary | None" = None
+    recent: "list[BatchRow] | None" = None
 
 
 def count_active_company_users(db: Session) -> int:
@@ -57,8 +64,12 @@ def count_active_company_users(db: Session) -> int:
     )
 
 
-def get_company_dashboard(db: Session) -> CompanyDashboard:
+def get_company_dashboard(
+    db: Session, user: User | None = None, context: ShopContext | None = None
+) -> CompanyDashboard:
+    """Administrative counts are company-wide; sales figures follow the shop context."""
     from app.services.shops import counts as shop_counts
+    from app.services.uploads import recent_batches, sales_summary
 
     subscription = db.get(AppSubscription, SINGLETON_ID)
     shops = shop_counts(db)
@@ -71,4 +82,6 @@ def get_company_dashboard(db: Session) -> CompanyDashboard:
         pending_fbr_sync=Metric(None, FBR_SYNC_NOT_AVAILABLE),
         uploads_reason=UPLOADS_NOT_AVAILABLE,
         shop_allowance=get_usage(db),
+        sales=sales_summary(db, user, context) if user and context else None,
+        recent=recent_batches(db, user, context) if user and context else None,
     )

@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     # any database whose name does not end in "_e2e".
     e2e_test_mode: bool = False
 
+    # --- Excel sales uploads ---------------------------------------------------
+    # Private directory for original files (a Docker volume; back it up with the
+    # database). Never served directly: downloads go through an authorized API.
+    upload_storage_dir: str = "/var/lib/cheena/uploads"
+    upload_max_bytes: int = 5 * 1024 * 1024
+    upload_max_rows: int = 5_000
+    # Decompression guard for the .xlsx ZIP container.
+    upload_max_uncompressed_bytes: int = 60 * 1024 * 1024
+    upload_max_zip_entries: int = 200
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

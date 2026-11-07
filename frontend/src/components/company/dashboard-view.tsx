@@ -14,6 +14,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { money, STATUS_LABEL } from "@/components/company/uploads/upload-format";
+import { formatDate } from "@/lib/format";
 import { DashboardCard } from "@/components/super-admin/dashboard-card";
 import { shopLabel } from "@/components/company/shop-context/paths";
 import type { CompanyDashboard, DashboardMetric, ShopAllowanceSummary } from "@/lib/api/types";
@@ -88,11 +90,11 @@ export function CompanyDashboardView({ data }: { data: CompanyDashboard }) {
       </section>
 
       <div className="grid gap-5 xl:grid-cols-3">
-        <SalesOverview className="xl:col-span-2" />
+        <SalesOverview data={data.sales_overview} className="xl:col-span-2" />
         <QuickActions />
       </div>
 
-      <RecentUploads />
+      <RecentUploads data={data.recent_uploads} />
     </div>
   );
 }
@@ -191,24 +193,39 @@ export function SummaryCard({
   );
 }
 
-const SALES_METRICS = ["Total Sales Amount", "Sales Tax Amount", "Net Sales Amount", "Uploaded Invoices"];
-
-function SalesOverview({ className }: { className?: string }) {
+/** Real totals of saved uploads in the current shop context (all are still Drafts). */
+function SalesOverview({ data, className }: { data: CompanyDashboard["sales_overview"]; className?: string }) {
+  const metrics: [string, string][] = [
+    ["Total Sales Amount", money(data.total_amount)],
+    ["Sales Tax Amount", money(data.total_sales_tax)],
+    ["Net Sales Amount", money(data.total_net_amount)],
+    ["Uploaded Invoices", data.records.toLocaleString("en-US")],
+  ];
   return (
-    <DashboardCard title="Sales Overview" icon={Receipt} className={className}>
+    <DashboardCard
+      title="Sales Overview"
+      icon={Receipt}
+      className={className}
+      action={
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/15">
+          Draft
+        </span>
+      }
+    >
       <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {SALES_METRICS.map((label) => (
+        {metrics.map(([label, value]) => (
           <div key={label} className="min-w-0 rounded-xl bg-slate-50 p-3 ring-1 ring-inset ring-slate-100">
             <dt className="text-xs text-slate-500">{label}</dt>
-            <dd className="mt-1 text-lg font-semibold text-slate-400">
-              —<span className="sr-only"> (not available yet)</span>
+            <dd className="mt-1 truncate text-lg font-semibold text-slate-900 tabular-nums" title={value} data-testid={`sales-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`}>
+              {value}
             </dd>
           </div>
         ))}
       </dl>
       <p className="mt-4 text-sm text-slate-600">
-        Sales analytics will be available once Excel Upload is implemented. No sales figures are
-        shown until real uploaded data exists.
+        {data.uploads === 0
+          ? "No sales files have been uploaded for this view yet."
+          : `${data.status_note} From ${data.uploads.toLocaleString("en-US")} upload${data.uploads === 1 ? "" : "s"}.`}
       </p>
     </DashboardCard>
   );
@@ -218,7 +235,7 @@ function SalesOverview({ className }: { className?: string }) {
 const QUICK_ACTIONS: { label: string; icon: LucideIcon; href?: string }[] = [
   { label: "Manage Shops", icon: Store, href: "/company/shops" },
   { label: "Manage Users", icon: Users, href: "/company/users" },
-  { label: "Upload Excel", icon: FileSpreadsheet },
+  { label: "Upload Excel", icon: FileSpreadsheet, href: "/company/uploads" },
   { label: "View Reports", icon: BarChart3 },
 ];
 
@@ -262,22 +279,40 @@ function QuickActions() {
   );
 }
 
-function RecentUploads() {
+function RecentUploads({ data }: { data: CompanyDashboard["recent_uploads"] }) {
   return (
     <DashboardCard title="Recent Excel Uploads" icon={FileSpreadsheet}>
-      <div
-        role="status"
-        className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center"
-      >
-        <span className="mb-3 flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-          <Inbox className="size-5" aria-hidden="true" />
-        </span>
-        <p className="text-sm font-semibold text-slate-900">No Excel uploads yet.</p>
-        <p className="mt-1 max-w-md text-sm text-slate-500">
-          Uploaded sales files and their approval status will appear here once Excel Upload is
-          available.
-        </p>
-      </div>
+      {data.items.length === 0 ? (
+        <div
+          role="status"
+          className="flex flex-col items-center rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center"
+        >
+          <span className="mb-3 flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+            <Inbox className="size-5" aria-hidden="true" />
+          </span>
+          <p className="text-sm font-semibold text-slate-900">No Excel uploads yet.</p>
+          <p className="mt-1 max-w-md text-sm text-slate-500">
+            Uploaded sales files and their status appear here.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-slate-100" aria-label="Recent uploads">
+          {data.items.map((u) => (
+            <li key={u.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5 text-sm">
+              <Link href={`/company/uploads/${u.id}`} className="min-w-0 font-medium text-blue-700 hover:underline">
+                {formatDate(u.sales_date)} · {u.shop_name} <span className="font-mono text-xs text-slate-500">{u.shop_code}</span>
+              </Link>
+              <span className="flex items-center gap-3 text-xs text-slate-600">
+                <span className="tabular-nums">{u.total_records.toLocaleString("en-US")} records</span>
+                <span className="font-medium tabular-nums text-slate-900">{money(u.total_net_amount)}</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium text-slate-600 ring-1 ring-inset ring-slate-500/15">
+                  {STATUS_LABEL[u.status]}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </DashboardCard>
   );
 }

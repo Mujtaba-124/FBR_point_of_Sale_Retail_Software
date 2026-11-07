@@ -113,7 +113,7 @@ describe("ReminderSettingsCard", () => {
     expect(screen.getByRole("switch", { name: "Send automatic reminders" })).toBeTruthy();
     expect(screen.getByText(/Daily from 15 days before expiry to 1 day before/)).toBeTruthy();
     expect(screen.getByText(/Daily for 5 days after expiry/)).toBeTruthy();
-    expect(screen.getByText("21 Oct 2027 – 10 Nov 2027")).toBeTruthy();
+    expect(screen.getByText("21/10/2027 – 10/11/2027")).toBeTruthy();
     expect(screen.getByText("Not run yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save reminder settings" })).toHaveProperty(
       "disabled",
@@ -231,7 +231,7 @@ describe("ReminderSettingsCard", () => {
       }),
     );
     expect(screen.getByText("Reminders queued for sending (2)")).toBeTruthy();
-    expect(screen.getByText("21 Oct 2027, 09:05")).toBeTruthy();
+    expect(screen.getByText("21/10/2027 09:05")).toBeTruthy();
   });
 });
 

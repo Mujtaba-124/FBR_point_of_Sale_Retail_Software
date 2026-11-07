@@ -41,6 +41,12 @@ export const NO_SHOPS_MESSAGE = "No shops have been assigned to your account. Co
 export type ShopContextValue = {
   enabled: boolean;
   access: ShopAccessInfo;
+  /**
+   * False until the server has said which shops this account covers. Until
+   * then `access` is only a placeholder: never show its label as the scope
+   * (a Company User is not "All Shops"; a failed load is not a scope at all).
+   */
+  accessKnown: boolean;
   status: Status;
   options: ShopOption[];
   truncated: boolean;
@@ -62,6 +68,7 @@ const COMPANY_ACCESS: ShopAccessInfo = { mode: "company", allLabel: "All Shops" 
 const DISABLED: ShopContextValue = {
   enabled: false,
   access: COMPANY_ACCESS,
+  accessKnown: false,
   status: "disabled",
   options: [],
   truncated: false,
@@ -147,7 +154,7 @@ export function ShopContextProvider({ enabled, children }: { enabled: boolean; c
           // Role changed: the account no longer uses a shop context.
           setRevoked(true);
           setData(null);
-          if (selectedId) dropSelection("Shop selection is no longer available for your account. Showing All Shops.");
+          if (selectedId) dropSelection("Shop selection is no longer available for your account.");
           return;
         }
         setStatus("error");
@@ -185,6 +192,7 @@ export function ShopContextProvider({ enabled, children }: { enabled: boolean; c
     return {
       enabled: true,
       access: data ? { mode: data.access.mode, allLabel: data.access.all_label } : COMPANY_ACCESS,
+      accessKnown: data !== null,
       status,
       options,
       truncated: data?.truncated ?? false,

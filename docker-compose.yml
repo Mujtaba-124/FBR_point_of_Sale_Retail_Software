@@ -54,10 +54,13 @@ services:
       FBR_TOKEN_PREVIOUS_KEYS: ${FBR_TOKEN_PREVIOUS_KEYS:-}
       SMTP_ALLOW_PRIVATE_HOSTS: ${SMTP_ALLOW_PRIVATE_HOSTS:-false}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+      # Private storage for original Excel uploads (never served directly).
+      UPLOAD_STORAGE_DIR: /var/lib/cheena/uploads
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - cheena_upload_storage:/var/lib/cheena/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +133,9 @@ volumes:
     name: cheena_frontend_node_modules
   cheena_frontend_next:
     name: cheena_frontend_next
+  # Original Excel uploads. Back it up together with the database.
+  cheena_upload_storage:
+    name: cheena_upload_storage
 
 networks:
   cheena_net:

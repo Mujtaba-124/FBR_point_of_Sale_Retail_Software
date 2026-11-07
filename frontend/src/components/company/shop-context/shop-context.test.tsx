@@ -70,6 +70,24 @@ describe("Shop selector", () => {
     expect(trigger().getAttribute("aria-haspopup")).toBe("listbox");
   });
 
+  it("says it is loading, not All Shops, before the server answers", async () => {
+    let answer: (value: ShopOptions) => void = () => {};
+    mockedFetch.mockReturnValue(new Promise<ShopOptions>((resolve) => (answer = resolve)));
+    render(<Workspace />);
+    expect(trigger().textContent).toContain("Loading shops…");
+    expect(trigger().textContent).not.toContain("All Shops");
+    await act(async () => answer({ ...options([A]), access: { mode: "selected", all_label: "All Assigned Shops" } }));
+    expect(trigger().textContent).toContain("All Assigned Shops");
+    expect(trigger().textContent).toContain("Your assigned shops");
+  });
+
+  it("never shows a failed load as All Shops", async () => {
+    mockedFetch.mockRejectedValue(new ApiError(503, "unavailable", "Service unavailable"));
+    render(<Workspace />);
+    await waitFor(() => expect(trigger().textContent).toContain("Shops unavailable"));
+    expect(trigger().textContent).not.toContain("All Shops");
+  });
+
   it("lists All Shops first, then shops by name and code, without POS IDs", async () => {
     const user = userEvent.setup();
     render(<Workspace />);
@@ -240,8 +258,8 @@ describe("Dashboard shop context", () => {
         pending_approvals: off,
         pending_fbr_sync: off,
       },
-      sales_overview: { available: false, unavailable_reason: "excel_upload_not_available" },
-      recent_uploads: { available: false, unavailable_reason: "excel_upload_not_available" },
+      sales_overview: { available: true, unavailable_reason: null, uploads: 0, records: 0, total_amount: "0", total_sales_tax: "0", total_net_amount: "0", status_note: "Draft uploads: not yet approved or sent to FBR." },
+      recent_uploads: { available: true, unavailable_reason: null, items: [] },
       shop_allowance: { mode: "unlimited", max_shops: null, registered_shops: 2, available_slots: null, at_capacity: false, over_limit: false },
       context,
       metric_scopes: { total_shops: "company", active_shops: "company", active_users: "company", pending_approvals: "context" },

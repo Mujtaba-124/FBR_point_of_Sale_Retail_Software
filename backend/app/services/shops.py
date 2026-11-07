@@ -16,6 +16,14 @@ Rules:
 - Shops are never deleted. Deactivation keeps the record, its identity and
   its FBR configuration; inactive shops will not be selectable for new uploads.
 - Every edit carries ``expected_version``; a stale form gets 409.
+- Sales Tax % (Phase 4.2, tax exclusive): 0 to 100 with at most 2 decimals,
+  exact decimal text (never float). Required for new shops; shops created
+  before Phase 4.2 start as "Not configured" (NULL) and cannot take new
+  uploads until it is set. Once set it can be changed but not removed. A
+  change applies to new upload batches only: saved revisions keep the rate
+  they were calculated with. Changes are audited with the previous and new
+  rate. The edit takes the shop row lock (FOR UPDATE), so it serializes with
+  upload saves, which hold the same row FOR SHARE while they save.
 - Creation is bounded by the Super Admin's Shop Allowance
   (``app.services.shop_allowance``): the allowance row is locked before the
   insert, active and inactive shops both count, and the database trigger
@@ -26,6 +34,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal
 
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -43,6 +52,8 @@ NAME_MAX = 120
 CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,19}$")
 POS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$")
 TOKEN_MIN, TOKEN_MAX = 8, 2048
+TAX_RATE_RE = re.compile(r"^\d{1,3}(\.\d{1,2})?$")
+TAX_RATE_MAX = Decimal("100")
 SORT_FIELDS = ("name", "code", "branch", "pos_id", "status", "created")
 
 
@@ -148,6 +159,27 @@ def clean_token(raw: str) -> str:
             "fbr_token", "The FBR token may contain only printable characters without spaces."
         )
     return value
+
+
+def clean_tax_rate(raw: str | None) -> Decimal:
+    """'18', '17.5', '0' -> Decimal; 0-100, at most 2 decimal places, digits only."""
+    value = (raw or "").strip().removesuffix("%").strip()
+    if not value:
+        raise _invalid("sales_tax_rate", "Enter the Sales Tax %.")
+    if not TAX_RATE_RE.match(value):
+        raise _invalid(
+            "sales_tax_rate",
+            "Sales Tax % must be a number from 0 to 100 with at most 2 decimal places.",
+        )
+    rate = Decimal(value)
+    if rate > TAX_RATE_MAX:
+        raise _invalid("sales_tax_rate", "Sales Tax % cannot be more than 100.")
+    return rate.quantize(Decimal("0.01"))
+
+
+def format_rate(rate: Decimal | None) -> str | None:
+    """Exact plain text for API and audit: Decimal('18.00') -> '18.00'."""
+    return None if rate is None else format(rate.quantize(Decimal("0.01")), "f")
 
 
 def _encrypt(token: str) -> str:
@@ -271,8 +303,10 @@ def create_shop(
     code: str,
     pos_id: str,
     fbr_token: str | None,
+    sales_tax_rate: str | None,
 ) -> Shop:
     clean_name = clean_text(name, "name", "Shop Name")
+    tax_rate = clean_tax_rate(sales_tax_rate)  # required for every new shop
     clean_branch = clean_text(branch_name, "branch_name", "Branch Name")
     clean_shop_code = clean_code(code)
     clean_pos = clean_pos_id(pos_id)
@@ -289,6 +323,7 @@ def create_shop(
             pos_id=clean_pos,
             encrypted_fbr_token=ciphertext,
             fbr_token_updated_at=now if ciphertext else None,
+            sales_tax_rate=tax_rate,
             is_active=True,
             version=1,
             created_by_user_id=actor.id,
@@ -296,7 +331,16 @@ def create_shop(
         )
         db.add(shop)
         db.flush()
-        _audit(db, actor, "shop.created", shop, {"fbr_token_configured": ciphertext is not None})
+        _audit(
+            db,
+            actor,
+            "shop.created",
+            shop,
+            {
+                "fbr_token_configured": ciphertext is not None,
+                "sales_tax_rate": format_rate(tax_rate),
+            },
+        )
         if ciphertext:
             _audit(db, actor, "shop.fbr_token_configured", shop, {})
         db.commit()
@@ -320,13 +364,27 @@ def update_shop(
     branch_name: str | None,
     code: str | None,
     pos_id: str | None,
+    sales_tax_rate: str | None = None,
+    sales_tax_rate_given: bool = False,
 ) -> Shop:
-    """Profile fields only; the FBR token has its own operation."""
+    """Profile fields and Sales Tax %; the FBR token has its own operation.
+
+    ``sales_tax_rate_given`` tells "not sent" apart from an explicit null.
+    """
     try:
         shop = get_shop(db, shop_id, lock=True)
         if shop.version != expected_version:
             raise _stale()
-        changes: dict[str, str] = {}
+        changes: dict[str, object] = {}
+        if sales_tax_rate_given:
+            if sales_tax_rate is None or not str(sales_tax_rate).strip():
+                if shop.sales_tax_rate is not None:
+                    raise _invalid(
+                        "sales_tax_rate",
+                        "Sales Tax % cannot be removed once configured. Enter the new rate.",
+                    )
+            else:
+                changes["sales_tax_rate"] = clean_tax_rate(sales_tax_rate)
         if name is not None:
             changes["name"] = clean_text(name, "name", "Shop Name")
         if branch_name is not None:
@@ -340,13 +398,24 @@ def update_shop(
             db.rollback()
             return get_shop(db, shop_id)
         _check_unique(
-            db, changes.get("code", shop.code), changes.get("pos_id", shop.pos_id), exclude=shop.id
+            db,
+            str(changes.get("code", shop.code)),
+            str(changes.get("pos_id", shop.pos_id)),
+            exclude=shop.id,
         )
+        details: dict[str, object] = {"changed": changed}
+        if "sales_tax_rate" in changed:
+            new_rate = changes["sales_tax_rate"]
+            assert isinstance(new_rate, Decimal)
+            details["sales_tax_rate"] = {
+                "previous": format_rate(shop.sales_tax_rate),
+                "new": format_rate(new_rate),
+            }
         for key in changed:
             setattr(shop, key, changes[key])
         shop.version += 1
         shop.updated_by_user_id = actor.id
-        _audit(db, actor, "shop.updated", shop, {"changed": changed, "version": shop.version})
+        _audit(db, actor, "shop.updated", shop, {**details, "version": shop.version})
         db.commit()
     except IntegrityError as exc:
         db.rollback()

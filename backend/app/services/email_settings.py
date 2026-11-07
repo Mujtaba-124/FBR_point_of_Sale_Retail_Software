@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 
 from app.core import clock, secret_box
 from app.core.config import get_settings
+from app.core.dates import display_datetime
 from app.core.errors import AppError
 from app.core.security import is_valid_email, mask_email, normalize_email
 from app.models import AuditEvent, EmailSettings, User
@@ -54,7 +55,6 @@ from app.services.smtp_transport import (
     host_syntax_problem,
     normalize_host,
 )
-from app.services.subscription import BUSINESS_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -615,7 +615,7 @@ def build_test_message(row: EmailSettings, recipient: str, now: datetime) -> Ema
     message["To"] = to
     message["Date"] = format_datetime(now)
     message["Message-ID"] = make_msgid(domain=sender.domain or None)
-    local = now.astimezone(BUSINESS_TZ).strftime("%d %b %Y, %H:%M PKT")
+    local = f"{display_datetime(now)} PKT"
     message.set_content(
         "This is a test email from Cheena FBR POS Software.\n\n"
         "If you received it, the email settings are working. No action is needed.\n\n"

@@ -73,5 +73,5 @@ def company_dashboard_summary(
     """
     context = shop_context.resolve(db, user, shop_id)
     return CompanyDashboardOut.from_data(
-        get_company_dashboard(db), context=ShopContextOut.from_context(context)
+        get_company_dashboard(db, user, context), context=ShopContextOut.from_context(context)
     )

@@ -118,7 +118,7 @@ describe("DashboardView", () => {
 
   it("shows the recorded renewal date when one exists", () => {
     render(<DashboardView data={data({ last_renewed_on: "2026-03-15" })} />);
-    expect(screen.getByText("15 Mar 2026")).toBeTruthy();
+    expect(screen.getByText("15/03/2026")).toBeTruthy();
   });
 
   it.each([
@@ -154,8 +154,8 @@ describe("dashboard loading and error states", () => {
 
 describe("formatDate", () => {
   it("formats calendar dates without time-zone drift", () => {
-    expect(formatDate("2026-01-01")).toBe("01 Jan 2026");
-    expect(formatDate("2026-12-31")).toBe("31 Dec 2026");
+    expect(formatDate("2026-01-01")).toBe("01/01/2026");
+    expect(formatDate("2026-12-31")).toBe("31/12/2026");
     expect(formatDate(null)).toBe("—");
     expect(formatDate("not-a-date")).toBe("—");
   });

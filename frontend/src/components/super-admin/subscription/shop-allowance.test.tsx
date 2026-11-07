@@ -198,6 +198,7 @@ function shop(n: number, status: Shop["status"] = "active"): Shop {
     pos_id: `P${n}`,
     status,
     fbr_token_status: "not_configured",
+    sales_tax_rate: "18.00",
     fbr_token_updated_at: null,
     version: 1,
     created_at: "2026-11-06T05:00:00Z",
@@ -279,6 +280,7 @@ describe("Company Shops — allowance indicator", () => {
     await user.type(within(dialog).getByLabelText("Branch Name"), "B");
     await user.type(within(dialog).getByLabelText("Shop Code"), "LATE");
     await user.type(within(dialog).getByLabelText("POS ID"), "9");
+    await user.type(within(dialog).getByLabelText("Sales Tax %"), "18");
     await user.click(within(dialog).getByRole("button", { name: "Add shop" }));
     expect(await within(dialog).findByText(/Shop limit reached: 3 of 3/)).toBeTruthy();
     await waitFor(() => expect(text("allowance-registered")).toBe("3 / 3"));
@@ -308,8 +310,8 @@ describe("Company Dashboard — Total Shops", () => {
         pending_approvals: off,
         pending_fbr_sync: off,
       },
-      sales_overview: { available: false, unavailable_reason: "excel_upload_not_available" },
-      recent_uploads: { available: false, unavailable_reason: "excel_upload_not_available" },
+      sales_overview: { available: true, unavailable_reason: null, uploads: 0, records: 0, total_amount: "0", total_sales_tax: "0", total_net_amount: "0", status_note: "Draft uploads: not yet approved or sent to FBR." },
+      recent_uploads: { available: true, unavailable_reason: null, items: [] },
       shop_allowance: a,
       context: { scope: "all", shop: null }, metric_scopes: { total_shops: "company", active_users: "company" },
     };

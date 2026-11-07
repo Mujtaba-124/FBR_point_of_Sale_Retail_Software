@@ -27,7 +27,7 @@ export const COMPANY_NAV: CompanyNavItem[] = [
   { key: "users", label: "User Management", icon: Users, href: "/company/users", permission: "users.view" },
   { key: "roles", label: "Roles & Permissions", icon: ShieldCheck, href: "/company/roles", permission: "roles.view" },
   { key: "shops", label: "Shops", icon: Store, href: "/company/shops", permission: "shops.view" },
-  { key: "uploads", label: "Excel Uploads", icon: FileSpreadsheet, permission: "uploads.view" },
+  { key: "uploads", label: "Excel Uploads", icon: FileSpreadsheet, href: "/company/uploads", permission: "uploads.view" },
   { key: "approvals", label: "Approvals", icon: ClipboardCheck, permission: "approvals.view" },
   { key: "fbr-sync", label: "FBR Sync", icon: RefreshCcw, permission: "fbr_sync.view" },
   { key: "reports", label: "Reports", icon: BarChart3, permission: "reports.view" },

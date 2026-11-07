@@ -259,10 +259,11 @@ def test_company_user_cannot_gain_anything_through_a_selection(db: Session, make
         "reports.view",
     ]
     user, _ = staff(db, make_user, every_assignable)
-    assert (
-        user.get(WORKSPACE).json()["shop_context_enabled"] is False
-    )  # no implemented consumer yet
-    assert user.get(OPTIONS).status_code == 403
+    # Excel Uploads (Phase 4) is a shop-aware module, so uploads.view enables the
+    # selector, but only within the user's shop access (none here: no shops).
+    assert user.get(WORKSPACE).json()["shop_context_enabled"] is True
+    options = user.get(OPTIONS).json()
+    assert options["items"] == [] and options["access"]["mode"] == "none"
     for params in ({}, {"shop_id": str(shop.id)}):
         assert user.get(DASHBOARD, params=params).status_code == 403
     # Selecting a shop does not unlock admin-only areas either.

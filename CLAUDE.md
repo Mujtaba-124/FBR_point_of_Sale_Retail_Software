@@ -53,7 +53,7 @@ Cheena FBR POS Software is a professional web application for **one company** th
 
 1. **Authentication & Users** — login, password set/reset via email link, user creation limited to a configured maximum.
 2. **Roles & Permissions** — each user has a role/rights defining accessible modules. Modules without rights are hidden in the menu **and** blocked by the API.
-3. **Shop Setup** — per shop: Shop Name, POS ID, Branch Name, Code, FBR Token.
+3. **Shop Setup** — per shop: Shop Name, POS ID, Branch Name, Code, Sales Tax %, FBR Token.
 4. **Excel Template & Upload** — downloadable template; one file at a time; one file = one date.
 5. **Sales View** — view uploaded records with totals; filter by date range and shop.
 6. **Approval Workflow** — statuses: `Draft` → `Wait for Approval` → `Accept` (by Owner, confirmed with OK) or `Reject` (back for correction).
@@ -62,11 +62,11 @@ Cheena FBR POS Software is a professional web application for **one company** th
 9. **Audit Log** — who did what and when (uploads, approvals, sync actions, user/shop/token changes).
 
 ### Excel template columns (fixed order)
-`Date, Time (24-hour), Customer Name, CNIC/NTN, Quantity, Rate, Amount, Sale Tax %, Sale Tax Amount, Net Amount`
+`Date, Time (24-hour), Item, Customer Name, CNIC/NTN, Quantity, Rate, Amount` (8 columns, decided 2026-11-07, Phase 4.2; the previous 10-column template with Sale Tax %, Sale Tax Amount and Net Amount is refused for new uploads, but saved 10-column revisions stay viewable)
 
 Validation rules:
 - Every row's date must match the file's single date; reject files mixing dates.
-- Amount = Quantity × Rate; Sale Tax Amount = Amount × Sale Tax %; Net Amount = Amount + Sale Tax Amount (verify within rounding tolerance; report row-level errors with row numbers).
+- Amount = Quantity × Rate (validated within 0.01; report row-level errors with row numbers). Tax is **exclusive** and comes from the shop's Sales Tax %, never from the file: Sales Tax Amount = Amount × Sales Tax % / 100 (ROUND_HALF_UP per row), Net Amount = Amount + Sales Tax Amount. Each upload revision stores its applied rate; a shop rate change never recalculates saved uploads, and a Draft replacement keeps the Draft's rate.
 - Time must be valid 24-hour format. CNIC/NTN format validated.
 - Duplicate-file protection (same shop + date already uploaded) must be explicit, not silent.
 - Whether a bad row rejects the whole file or only that row is an open question — default to rejecting the file with a full error list until decided.
@@ -146,7 +146,7 @@ UI/UX:
 - Destructive or irreversible actions (Accept, Cancel sync, delete) require a confirmation dialog.
 - Upload screen: template download link, drag-and-drop, row-level validation error report with row numbers.
 - Sync screen: live progress (sent / pending / failed), Stop / Cancel / Resume controls, clear time-window display.
-- Display time in 24-hour format; amounts with thousand separators and 2 decimals; dates in a consistent format; timezone is Pakistan Standard Time (PKT) for display, stored in UTC.
+- Display time in 24-hour format; amounts with thousand separators and 2 decimals; dates as DD/MM/YYYY and timestamps as DD/MM/YYYY HH:mm via the shared helpers in `frontend/src/lib/format.ts` and the shared `DatePicker` (never a native `type="date"` input), decided 2026-11-07; timezone is Pakistan Standard Time (PKT) for display, stored in UTC.
 - Accessible: keyboard navigation, labels, sufficient contrast.
 
 ## 12. Testing Requirements

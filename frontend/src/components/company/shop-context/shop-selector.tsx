@@ -72,26 +72,37 @@ export function ShopSelector({ onSelected }: { onSelected?: () => void }) {
     }
   }
 
+  // Before the server answers, the scope is unknown: say so rather than
+  // showing a placeholder "All Shops" (wrong for Company Users and on errors).
+  const unknown = interactive && !current && !pending && !ctx.accessKnown;
   const value = !interactive
     ? "Company-wide page"
     : current
       ? current.name
       : pending
         ? "Checking shop…"
-        : noShops
-          ? "No shops assigned"
-          : ctx.access.allLabel;
+        : unknown
+          ? ctx.status === "error"
+            ? "Shops unavailable"
+            : "Loading shops…"
+          : noShops
+            ? "No shops assigned"
+            : ctx.access.allLabel;
   const sub = !interactive
     ? "Not filtered by shop"
     : current
       ? current.code
       : pending
         ? null
-        : noShops
-          ? "Contact your Company Admin"
-          : assigned
-            ? "Your assigned shops"
-            : "Consolidated view";
+        : unknown
+          ? ctx.status === "error"
+            ? "Open to try again"
+            : null
+          : noShops
+            ? "Contact your Company Admin"
+            : assigned
+              ? "Your assigned shops"
+              : "Consolidated view";
 
   return (
     <div className="rounded-xl bg-white/[0.06] p-2.5 ring-1 ring-white/10" data-testid="shop-selector">
@@ -216,7 +227,7 @@ export function ShopSelector({ onSelected }: { onSelected?: () => void }) {
       </Popover>
       {!interactive && (
         <p id={`${baseId}-why`} className="px-1 pt-1.5 text-[11px] leading-snug text-blue-200/60">
-          User Management, Roles and Shops always cover the whole company.
+          This page is not filtered by shop. User Management, Roles and Shops always cover the whole company.
         </p>
       )}
       {interactive && noShops && ctx.status === "ready" && (

@@ -1,8 +1,11 @@
 """Company dashboard response. Counts only; no account details, no secrets."""
 
-from typing import Literal
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PlainSerializer
 
 from app.schemas.shop_allowance import AllowanceSummaryOut
 from app.schemas.shop_context import ShopContextOut
@@ -37,6 +40,41 @@ class MetricOut(BaseModel):
         )
 
 
+Money = Annotated[Decimal, PlainSerializer(lambda d: format(d, "f"), return_type=str)]
+
+
+class SalesOverviewOut(BaseModel):
+    """Real totals of saved uploads in the shop context. Every upload is still a
+    Draft until the Approval workflow exists, so nothing here is approved or
+    sent to FBR (``status_note`` says so)."""
+
+    available: bool
+    unavailable_reason: str | None
+    uploads: int
+    records: int
+    total_amount: Money
+    total_sales_tax: Money
+    total_net_amount: Money
+    status_note: str
+
+
+class RecentUploadOut(BaseModel):
+    id: uuid.UUID
+    sales_date: date
+    shop_name: str
+    shop_code: str
+    total_records: int
+    total_net_amount: Money
+    status: str
+    uploaded_at: datetime
+
+
+class RecentUploadsOut(BaseModel):
+    available: bool
+    unavailable_reason: str | None
+    items: list[RecentUploadOut]
+
+
 class SectionStatusOut(BaseModel):
     available: Literal[False]
     unavailable_reason: str
@@ -50,8 +88,8 @@ class CompanyDashboardOut(BaseModel):
         ],
         MetricOut,
     ]
-    sales_overview: SectionStatusOut
-    recent_uploads: SectionStatusOut
+    sales_overview: SalesOverviewOut
+    recent_uploads: RecentUploadsOut
     shop_allowance: AllowanceSummaryOut
     # The shop context this response was built for (All Shops or one shop).
     context: ShopContextOut
@@ -63,7 +101,34 @@ class CompanyDashboardOut(BaseModel):
     def from_data(
         cls, data: CompanyDashboard, context: ShopContextOut | None = None
     ) -> "CompanyDashboardOut":
-        unavailable = SectionStatusOut(available=False, unavailable_reason=data.uploads_reason)
+        sales = data.sales
+        overview = SalesOverviewOut(
+            available=sales is not None,
+            unavailable_reason=None if sales is not None else data.uploads_reason,
+            uploads=sales.uploads if sales else 0,
+            records=sales.records if sales else 0,
+            total_amount=sales.amount if sales else Decimal("0"),
+            total_sales_tax=sales.tax if sales else Decimal("0"),
+            total_net_amount=sales.net if sales else Decimal("0"),
+            status_note="Draft uploads: not yet approved or sent to FBR.",
+        )
+        recent = RecentUploadsOut(
+            available=data.recent is not None,
+            unavailable_reason=None if data.recent is not None else data.uploads_reason,
+            items=[
+                RecentUploadOut(
+                    id=r.batch.id,
+                    sales_date=r.batch.sales_date,
+                    shop_name=r.shop_name,
+                    shop_code=r.shop_code,
+                    total_records=r.batch.total_records,
+                    total_net_amount=r.batch.total_net_amount,
+                    status=r.batch.status,
+                    uploaded_at=r.uploaded_at,
+                )
+                for r in (data.recent or [])
+            ],
+        )
         return cls(
             company={"name": data.company_name},
             metrics={
@@ -73,8 +138,8 @@ class CompanyDashboardOut(BaseModel):
                 "pending_approvals": MetricOut.from_metric(data.pending_approvals),
                 "pending_fbr_sync": MetricOut.from_metric(data.pending_fbr_sync),
             },
-            sales_overview=unavailable,
-            recent_uploads=unavailable,
+            sales_overview=overview,
+            recent_uploads=recent,
             shop_allowance=AllowanceSummaryOut.from_usage(data.shop_allowance),
             context=context or ShopContextOut(scope="all", shop=None),
             metric_scopes=METRIC_SCOPES,

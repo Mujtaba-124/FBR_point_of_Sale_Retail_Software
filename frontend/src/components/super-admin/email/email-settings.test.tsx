@@ -365,9 +365,9 @@ describe("EmailSettingsView", () => {
       }),
     );
     expect(screen.getByText("Last successful test")).toBeTruthy();
-    expect(screen.getAllByText("05 Nov 2026, 15:00")).toHaveLength(2); // PKT: tested + failed
+    expect(screen.getAllByText("05/11/2026 15:00")).toHaveLength(2); // PKT: tested + failed
     // Last success, plus "Last updated" in the overview (same 09:00 UTC timestamp).
-    expect(screen.getAllByText("05 Nov 2026, 14:00")).toHaveLength(2);
+    expect(screen.getAllByText("05/11/2026 14:00")).toHaveLength(2);
     expect(screen.getByText("The SMTP server did not respond in time.")).toBeTruthy();
   });
 });

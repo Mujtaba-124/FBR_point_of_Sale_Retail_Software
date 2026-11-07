@@ -268,7 +268,13 @@ Add `-KeepResources` to keep the e2e database and containers for inspection. The
 
 ## Shop Management (Company Workspace)
 
-`/company/shops` - fields: Shop Name, Branch Name, Shop Code, POS ID, FBR Token.
+`/company/shops` - fields: Shop Name, Branch Name, Shop Code, POS ID, Sales Tax %, FBR Token.
+
+- **Sales Tax %** (`shops.sales_tax_rate`, NUMERIC(5,2)): 0 to 100, at most 2 decimals, required for
+  new shops; no statutory rate is hard-coded. Shops created before migration `0013_shop_sales_tax`
+  are "Not configured" and cannot take new Excel uploads until a Company Admin (`shops.edit`) sets
+  it. Once set it can be changed (with a confirmation) but not removed. A change applies to new
+  upload batches only; it is audited in `shop.updated` with the previous and new rate.
 
 - **Uniqueness:** Shop Code and POS ID are unique across all shops, case-insensitively
   (PostgreSQL unique indexes). POS IDs are strings, so leading zeros are kept.
@@ -319,7 +325,7 @@ The sidebar's **Shop context** control (desktop sidebar and mobile drawer) switc
 **All Shops** (consolidated) and one active shop. It is a filter, never a permission.
 
 - **Mechanism:** the selection is the URL parameter `?shop=<immutable shop id>` on shop-aware pages
-  (today only the Dashboard; future Uploads, Approvals, FBR Sync and Reports are added in
+  (today the Dashboard and Excel Uploads; future Approvals, FBR Sync and Reports are added in
   `frontend/src/components/company/shop-context/paths.ts`). Reload, Back/Forward and links reproduce
   it; nothing is stored in the browser. A Company-layout provider remembers the last selection in
   memory, so links back from company-wide pages keep it. Sign-in/out are full page loads and the
@@ -334,8 +340,8 @@ The sidebar's **Shop context** control (desktop sidebar and mobile drawer) switc
   side (422 invalid, 404 unknown, 409 inactive), offers `Purpose.OPERATE` (active only, FOR SHARE lock),
   `require_single_shop` (e.g. Excel Upload) and `Purpose.HISTORY` (inactive allowed, read-only).
   `shop_access_condition()` is where per-user shop assignments would go; none exist today.
-- **Who sees it:** accounts with an implemented shop-aware module. Today that is the Company Admin
-  (Dashboard); Company Users get it once a shop-aware module they hold is built.
+- **Who sees it:** accounts with an implemented shop-aware module: the Company Admin (Dashboard,
+  Excel Uploads) and Company Users who hold `uploads.view`.
 
 ### User shop access (Company Admin)
 
@@ -359,6 +365,81 @@ protected Company Admin always has all shops and cannot be reassigned.
   assigned shop), `resolve_historical_shop(...)`, and `scope_filter(user, context, Table.shop_id)`
   for consolidated queries, which filters inside SQL. Company Users see "All Assigned Shops".
 
+## Excel Uploads (Company Workspace)
+
+Daily sales files per shop: **Download template → choose shop + sales date → choose one `.xlsx` →
+Check file (preview with totals and row errors) → Save as Draft → Upload History → detail.**
+Approval (Wait for Approval / Accept / Reject) and FBR sync are later modules; uploads stay `draft`.
+
+- **Template** (`GET /api/v1/company/uploads/template`): sheet `Sales` with exactly 8 columns in
+  fixed order (Date, Time, Item, Customer Name, CNIC/NTN, Quantity, Rate, Amount) plus an
+  `Instructions` sheet. Date cells are shown as DD/MM/YYYY. No formulas, no macros. The previous
+  10-column template is refused for new uploads (`legacy_template`), never reinterpreted.
+- **Validation** (`app/services/excel_sales.py`): every row must carry the chosen sales date;
+  24-hour time; Item required (text, max 200); CNIC/NTN must be a text cell (leading zeros kept);
+  quantity > 0 (3 dp); rate ≥ 0 (4 dp); Amount ≥ 0 (2 dp) and Amount = Quantity × Rate within 0.01
+  (ROUND_HALF_UP). The uploaded Amount is stored as given. Any invalid row rejects the whole file
+  with a row-numbered error list.
+- **Sales tax (tax exclusive):** Sales Tax = Amount × rate / 100, rounded ROUND_HALF_UP to 2 places
+  per row; Net = Amount + Sales Tax; file totals are sums of the rounded rows. The server calculates
+  them; the browser only displays them. The rate is the shop's Sales Tax % for a new Draft, and the
+  Draft's own saved rate for a replacement (the shop's current rate is ignored then).
+- **Tax snapshot:** every revision stores `applied_sales_tax_rate`, `tax_rate_source`
+  (`shop` | `draft` | `legacy_rows` | `legacy_mixed`) and `template_format`
+  (`standard_8col` | `legacy_10col`); every row keeps its `tax_percent`. Saved uploads are never
+  recalculated from a shop's current rate. The preview's rate is sent back on save
+  (`expected_tax_rate`) and compared under the shop/batch row lock; a rate changed after the check
+  is refused (409 `tax_rate_changed`) and the file must be checked again.
+- **Legacy 10-column revisions** (before `0013`): kept unchanged, viewable and downloadable; Item
+  shows "—". Uniform-rate revisions got a `legacy_rows` snapshot from their own rows (both real
+  revisions: 18%); a revision with mixed row rates has none (`legacy_mixed`, shown as "Mixed")
+  and cannot be replaced (`draft_tax_rate_unknown`) without a future reviewed tax correction.
+- **File safety:** `.xlsx` only, size checked while streaming; macros, external links, formulas,
+  formula-like text, merged cells, extra columns, encrypted/OLE files and zip bombs are refused.
+  Limits (`.env`): `UPLOAD_MAX_BYTES` (5 MB) and `UPLOAD_MAX_ROWS` (5,000).
+- **One upload per shop and date:** `UNIQUE (shop_id, sales_date)` on `upload_batches`. A Draft
+  can be replaced (`uploads.edit_draft`, `expected_revision` against stale screens); every
+  version is kept in `upload_revisions` with its original file, and `upload_revisions` /
+  `sales_records` are append-only (database triggers). Uploaders cannot be deleted
+  (`ON DELETE RESTRICT`); deactivate users instead.
+- **Preview/save integrity:** Save re-sends the file with the preview's SHA-256; a different file
+  is refused (409 `preview_mismatch`), and the file is fully re-validated inside the save transaction.
+- **Permissions:** `uploads.view` (history, detail, records, original files), `uploads.upload`
+  (check and save), `uploads.edit_draft` (replace a Draft; works only together with View and Upload,
+  enforced in `can_replace_drafts`), always limited to the user's assigned shops; unassigned or
+  inactive shops answer 404/409. `uploads.delete_draft` and `uploads.submit` exist as role options
+  but open no route or button yet. The Super Admin has no access.
+- **Upload History filters** are kept in the URL as ISO dates (`?from=2026-11-01&to=2026-11-07&status=draft`),
+  so reload and Back/Forward show the same list; the fields show them as DD/MM/YYYY.
+- **Privacy:** CNIC/NTN is masked in every API response (last 4 characters); audit entries
+  (`upload.created`, `upload.replaced`, `upload.rejected`, `upload.original_downloaded`) hold counts
+  and IDs, never customer data.
+
+### Original-file storage (back this up)
+
+Original files are private, outside the web root, in the Docker volume `cheena_upload_storage`
+(`UPLOAD_STORAGE_DIR=/var/lib/cheena/uploads`, keys `YYYY/MM/<random>.xlsx`, SHA-256 checked on
+every read). **Back up this volume together with the database**: a database restore without the
+matching files leaves revisions whose original cannot be downloaded (records stay readable).
+
+## Dates (application standard)
+
+Every date people read or type is **DD/MM/YYYY** (07/11/2026 = 7 November 2026) and every
+timestamp **DD/MM/YYYY HH:mm** in 24-hour Pakistan time (Asia/Karachi), whatever the browser
+or operating-system locale.
+
+- **Display:** `formatDate` / `formatDateTime` in `frontend/src/lib/format.ts`; backend text
+  (validation messages, emails) uses `app/core/dates.py`. Do not format dates locally in components.
+- **Entry:** the shared `DatePicker` (`frontend/src/components/ui/date-picker.tsx`): typed DD/MM/YYYY
+  (slashes added for digit-only typing) or picked from the calendar; impossible dates such as
+  29/02/2027 and dates outside the allowed range are reported, never corrected. Native
+  `<input type="date">` is not used because its day/month order follows the browser locale.
+- **Storage and APIs are unchanged:** DATE columns, ISO `YYYY-MM-DD` in API parameters and JSON,
+  UTC timestamps in the database, ISO values in audit metadata and logs.
+- **Excel files** keep their own documented contract: a real date cell, or text `2026-11-07` /
+  `07-Nov-2026`. Text such as `07/11/2026` is deliberately not accepted in files (it is ambiguous in
+  Excel depending on the computer's region); accepting it would be a separate parser decision.
+
 ## Tests and checks
 
 Backend tests use a separate disposable database (`cheena_database_test`, created
@@ -378,7 +459,7 @@ docker compose exec frontend npm run build
 docker compose exec backend alembic revision --autogenerate -m "message"
 docker compose exec backend alembic upgrade head
 ```
-Current head: `0010_user_shop_access` (`users`, `authentication_sessions`, `audit_events`, `app_subscription`, `subscription_renewals`, `email_settings`, `subscription_reminder_settings`, `email_outbox`, `email_delivery_attempts`, `company_roles`, `company_role_permissions`, `password_setup_tokens`, `shops`, `shop_allowance`, `user_shop_access`, `user_shop_assignments`).
+Current head: `0013_shop_sales_tax` (`users`, `authentication_sessions`, `audit_events`, `app_subscription`, `subscription_renewals`, `email_settings`, `subscription_reminder_settings`, `email_outbox`, `email_delivery_attempts`, `company_roles`, `company_role_permissions`, `password_setup_tokens`, `shops`, `shop_allowance`, `user_shop_access`, `user_shop_assignments`, `upload_batches`, `upload_revisions`, `sales_records`).
 
 The frontend dev container does not hot-reload on Windows; after editing frontend files run:
 ```bash

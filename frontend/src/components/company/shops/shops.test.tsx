@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { navFor } from "@/components/company/nav-items";
-import type { ShopAbilities } from "@/components/company/shops/shop-form-dialog";
-import { tokenProblem, validateShop } from "@/components/company/shops/shop-validation";
+import { type ShopAbilities, TAX_CHANGE_NOTE } from "@/components/company/shops/shop-form-dialog";
+import { formatTaxRate, taxRateProblem, tokenProblem, toHundredths, validateShop } from "@/components/company/shops/shop-validation";
 import { shopsPath, ShopsView } from "@/components/company/shops/shops-view";
 import { ApiError, apiFetch } from "@/lib/api/client";
 import type { Shop, ShopPage } from "@/lib/api/types";
@@ -27,7 +27,7 @@ const VIEW_ONLY: ShopAbilities = { create: false, edit: false, toggle: false, ma
 function shop(overrides: Partial<Shop> = {}): Shop {
   return {
     id: crypto.randomUUID(), name: "Main Store", branch_name: "Gulberg", code: "LHR-01", pos_id: "000123",
-    status: "active", fbr_token_status: "configured", fbr_token_updated_at: "2026-11-06T05:00:00Z",
+    status: "active", fbr_token_status: "configured", fbr_token_updated_at: "2026-11-06T05:00:00Z", sales_tax_rate: "18.00",
     version: 1, created_at: "2026-11-06T05:00:00Z", updated_at: "2026-11-06T05:00:00Z", ...overrides,
   };
 }
@@ -100,6 +100,7 @@ describe("Shop Management", () => {
     await user.type(within(dialog).getByLabelText("Branch Name"), "DHA");
     await user.type(within(dialog).getByLabelText("Shop Code"), "NEW-1");
     await user.type(within(dialog).getByLabelText("POS ID"), "007");
+    await user.type(within(dialog).getByLabelText("Sales Tax %"), "18");
     const tokenField = within(dialog).getByLabelText("FBR Token (optional)") as HTMLInputElement;
     expect(tokenField.type).toBe("text"); // masked with CSS, never a password field
     expect(tokenField.dataset.masked).toBe("true");
@@ -108,7 +109,7 @@ describe("Shop Management", () => {
     await waitFor(() => expect(screen.getByText("New Shop was added.")).toBeTruthy());
     const post = mockedFetch.mock.calls.find((c) => c[1]?.method === "POST")!;
     expect(JSON.parse(String(post[1]?.body))).toEqual({
-      name: "New Shop", branch_name: "DHA", code: "NEW-1", pos_id: "007", fbr_token: "QA-DUMMY-TOKEN-123",
+      name: "New Shop", branch_name: "DHA", code: "NEW-1", pos_id: "007", sales_tax_rate: "18", fbr_token: "QA-DUMMY-TOKEN-123",
     });
     expect(document.body.textContent).not.toContain("QA-DUMMY-TOKEN-123");
   });
@@ -130,11 +131,13 @@ describe("Shop Management", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Add shop" }));
     expect(within(dialog).getByText("Enter the shop name.")).toBeTruthy();
+    expect(within(dialog).getByText("Enter the Sales Tax %.")).toBeTruthy(); // required for new shops
     expect(mockedFetch).not.toHaveBeenCalled();
     await user.type(within(dialog).getByLabelText("Shop Name"), "Dup");
     await user.type(within(dialog).getByLabelText("Branch Name"), "B");
     await user.type(within(dialog).getByLabelText("Shop Code"), "LHR-01");
     await user.type(within(dialog).getByLabelText("POS ID"), "1");
+    await user.type(within(dialog).getByLabelText("Sales Tax %"), "0");
     await user.click(within(dialog).getByRole("button", { name: "Add shop" }));
     expect(await within(dialog).findByText("Another shop already uses this Shop Code.")).toBeTruthy();
   });
@@ -158,6 +161,58 @@ describe("Shop Management", () => {
     const sent = JSON.parse(String(patch[1]?.body));
     expect(sent).toMatchObject({ expected_version: 1, name: "Flagship" });
     expect(sent).not.toHaveProperty("fbr_token");
+    expect(sent).not.toHaveProperty("sales_tax_rate"); // unchanged rate is not sent
+  });
+
+  it("changes the Sales Tax % only after an explicit confirmation", async () => {
+    const user = userEvent.setup();
+    const s = shop();
+    mockedFetch.mockImplementation(async (path, init) =>
+      init?.method === "PATCH" ? { ...s, sales_tax_rate: "17.00", version: 2 } : page([s]));
+    renderView(page([s]));
+    await user.click(within(screen.getByRole("table", { name: "Shops" })).getByRole("button", { name: "Edit Main Store" }));
+    const dialog = await screen.findByRole("dialog");
+    const rate = within(dialog).getByLabelText("Sales Tax %") as HTMLInputElement;
+    expect(rate.value).toBe("18");
+    await user.clear(rate);
+    await user.type(rate, "17");
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    const confirm = within(dialog).getByRole("group", { name: "Confirm Sales Tax % change" });
+    expect(confirm.textContent).toContain("from 18% to 17%");
+    expect(confirm.textContent).toContain(TAX_CHANGE_NOTE);
+    expect(mockedFetch.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(mockedFetch.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(true));
+    const patch = mockedFetch.mock.calls.find((c) => c[1]?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]?.body))).toMatchObject({ expected_version: 1, sales_tax_rate: "17" });
+    expect(await screen.findByText(/Sales Tax % is now 17% for new uploads/)).toBeTruthy();
+  });
+
+  it("lets an older shop set its first rate but never remove a configured one", async () => {
+    const user = userEvent.setup();
+    const old = shop({ sales_tax_rate: null });
+    mockedFetch.mockImplementation(async (path, init) =>
+      init?.method === "PATCH" ? { ...old, sales_tax_rate: "18.00", version: 2 } : page([old]));
+    renderView(page([old]));
+    expect(within(screen.getByRole("table", { name: "Shops" })).getByText("Not configured")).toBeTruthy();
+    await user.click(within(screen.getByRole("table", { name: "Shops" })).getByRole("button", { name: "Edit Main Store" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Not configured yet/)).toBeTruthy();
+    await user.type(within(dialog).getByLabelText("Sales Tax %"), "18");
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    // Setting the first rate needs no change confirmation.
+    await waitFor(() => expect(mockedFetch.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(true));
+  });
+
+  it("refuses removing a configured rate in the form", async () => {
+    const user = userEvent.setup();
+    renderView(page([shop()]));
+    await user.click(within(screen.getByRole("table", { name: "Shops" })).getByRole("button", { name: "Edit Main Store" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.clear(within(dialog).getByLabelText("Sales Tax %"));
+    await user.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    expect(within(dialog).getByText("Enter the Sales Tax %.")).toBeTruthy();
+    expect(mockedFetch.mock.calls.some((c) => c[1]?.method === "PATCH")).toBe(false);
   });
 
   it("replaces the token only through the explicit token action", async () => {
@@ -220,9 +275,18 @@ describe("Shop Management", () => {
 
 describe("helpers and navigation", () => {
   it("validates like the backend", () => {
-    expect(validateShop({ name: " ", branch_name: "B", code: "ok", pos_id: "1" }).name).toBeTruthy();
-    expect(validateShop({ name: "A", branch_name: "B", code: "bad code", pos_id: "1" }).code).toBeTruthy();
-    expect(validateShop({ name: "A", branch_name: "B", code: "ok", pos_id: "0012" })).toEqual({});
+    const base = { name: "A", branch_name: "B", code: "ok", pos_id: "1", sales_tax_rate: "18" };
+    expect(validateShop({ ...base, name: " " }).name).toBeTruthy();
+    expect(validateShop({ ...base, code: "bad code" }).code).toBeTruthy();
+    expect(validateShop({ ...base, pos_id: "0012" })).toEqual({});
+    for (const ok of ["0", "18", "17.5", "16.25", "100"]) expect(taxRateProblem(ok)).toBeNull();
+    for (const bad of ["", "-1", "100.01", "101", "17.555", "abc", "1e2", "18,5"]) expect(taxRateProblem(bad)).toBeTruthy();
+    expect(validateShop({ ...base, sales_tax_rate: "" }).sales_tax_rate).toBe("Enter the Sales Tax %.");
+    expect(validateShop({ ...base, sales_tax_rate: "" }, { taxRateRequired: false })).toEqual({});
+    expect([formatTaxRate("18.00"), formatTaxRate("17.50"), formatTaxRate("0.00"), formatTaxRate(null)]).toEqual([
+      "18%", "17.5%", "0%", "Not configured",
+    ]);
+    expect(toHundredths("18") === toHundredths("18.00")).toBe(true);
     expect(tokenProblem("short")).toBeTruthy();
     expect(tokenProblem("has space inside")).toBeTruthy();
     expect(tokenProblem("QA-DUMMY-TOKEN")).toBeNull();

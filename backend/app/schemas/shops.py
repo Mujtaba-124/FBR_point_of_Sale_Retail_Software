@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Shop
 from app.schemas.shop_allowance import AllowanceSummaryOut
-from app.services.shops import ShopCounts, token_status
+from app.services.shops import ShopCounts, format_rate, token_status
 
 
 class ShopOut(BaseModel):
@@ -20,6 +20,8 @@ class ShopOut(BaseModel):
     status: Literal["active", "inactive"]
     fbr_token_status: Literal["configured", "not_configured", "unreadable"]
     fbr_token_updated_at: datetime | None
+    # Exact text ("18.00"); null = not configured (cannot take new uploads).
+    sales_tax_rate: str | None
     version: int
     created_at: datetime
     updated_at: datetime
@@ -35,6 +37,7 @@ class ShopOut(BaseModel):
             status="active" if s.is_active else "inactive",
             fbr_token_status=token_status(s),  # type: ignore[arg-type]
             fbr_token_updated_at=s.fbr_token_updated_at,
+            sales_tax_rate=format_rate(s.sales_tax_rate),
             version=s.version,
             created_at=s.created_at,
             updated_at=s.updated_at,
@@ -69,6 +72,8 @@ class CreateShopRequest(BaseModel):
     pos_id: str = Field(min_length=1, max_length=100)
     # Optional: needs the "Manage FBR token" permission when provided.
     fbr_token: str | None = Field(default=None, max_length=4096)
+    # Required: exact decimal text, e.g. "18" or "17.5" (validated by the service).
+    sales_tax_rate: str | None = Field(default=None, max_length=12)
 
 
 class UpdateShopRequest(BaseModel):
@@ -79,6 +84,7 @@ class UpdateShopRequest(BaseModel):
     branch_name: str | None = Field(default=None, min_length=1, max_length=400)
     code: str | None = Field(default=None, min_length=1, max_length=100)
     pos_id: str | None = Field(default=None, min_length=1, max_length=100)
+    sales_tax_rate: str | None = Field(default=None, max_length=12)
 
 
 class ShopVersionRequest(BaseModel):

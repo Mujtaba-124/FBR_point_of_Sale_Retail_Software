@@ -6,10 +6,10 @@ cannot grant anything.
 
 Who may use a shop context
     Only accounts that can use at least one *implemented* shop-aware module
-    (``CONSUMERS``). Today that is the Company Dashboard summary, which is
-    Company Admin only, so Company Users have no shop context yet. When Excel
-    Uploads, Approvals, FBR Sync or Reports are built, flip ``implemented``
-    for that consumer and holders of its view permission gain the selector.
+    (``CONSUMERS``): the Company Dashboard summary (Company Admin only) and
+    Excel Uploads (``uploads.view``). When Approvals, FBR Sync or Reports are
+    built, flip ``implemented`` for that consumer and holders of its view
+    permission gain the selector.
 
 Which shops
     ``shop_access_condition`` delegates to ``app.services.shop_access``: the
@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from sqlalchemy import ColumnElement, Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.errors import AppError, PermissionDenied
 from app.models import AccessCategory, Shop, User
@@ -72,7 +72,7 @@ class Consumer:
 
 CONSUMERS: tuple[Consumer, ...] = (
     Consumer("dashboard_analytics", implemented=True),  # /company/dashboard/summary
-    Consumer("uploads", implemented=False, permission="uploads.view", requires_single_shop=True),
+    Consumer("uploads", implemented=True, permission="uploads.view", requires_single_shop=True),
     Consumer("approvals", implemented=False, permission="approvals.view"),
     Consumer("fbr_sync", implemented=False, permission="fbr_sync.view"),
     Consumer("reports", implemented=False, permission="reports.view"),
@@ -178,7 +178,9 @@ def access_label(user: User) -> str:
 
 
 def scope_filter(
-    user: User, context: "ShopContext", column: ColumnElement[uuid.UUID]
+    user: User,
+    context: "ShopContext",
+    column: ColumnElement[uuid.UUID] | InstrumentedAttribute[uuid.UUID],
 ) -> ColumnElement[bool]:
     """WHERE clause for a consolidated or single-shop query on ``column`` (a shop_id).
 

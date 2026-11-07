@@ -101,6 +101,7 @@ def create(client: TestClient, **overrides: object):
         "branch_name": "Branch",
         "code": f"C{n}",
         "pos_id": f"P{n}",
+        "sales_tax_rate": "18",
     }
     data.update(overrides)
     return client.post(SHOPS, json=data, headers=h(client))
@@ -138,11 +139,19 @@ def test_migration_preserves_existing_shops_and_starts_unlimited(db: Session) ->
             )
         )
         db.commit()
-        fingerprint = "SELECT string_agg(row(s.*)::text, '|' ORDER BY code) FROM shops s"
+        # The columns that existed before the later migrations (0013 adds sales_tax_rate).
+        fingerprint = (
+            "SELECT string_agg(row(s.id, s.name, s.branch_name, s.code, s.pos_id, "
+            "s.encrypted_fbr_token, s.fbr_token_updated_at, s.is_active, s.version, "
+            "s.created_at, s.updated_at)::text, '|' ORDER BY code) FROM shops s"
+        )
         before = db.scalar(text(fingerprint))
+        db.rollback()  # end the read transaction: later migrations ALTER shops
     finally:
         command.upgrade(cfg, "head")
     assert db.scalar(text(fingerprint)) == before  # rows, tokens, statuses untouched
+    # Shops that existed before Phase 4.2 get no assumed Sales Tax %.
+    assert db.scalars(text("SELECT sales_tax_rate FROM shops")).all() == [None, None]
     row = db.get(ShopAllowance, 1)
     assert row is not None and (row.mode, row.max_shops, row.version) == ("unlimited", None, 1)
     usage = allowance_svc.get_usage(db)
@@ -429,6 +438,7 @@ def _create_via_service(factory, actor_id, n: int) -> str:
                 code=f"RACE-{n}",
                 pos_id=f"RACE-{n}",
                 fbr_token=None,
+                sales_tax_rate="18",
             )
             return "created"
         except AppError as exc:
